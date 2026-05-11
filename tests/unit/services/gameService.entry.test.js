@@ -1,0 +1,45 @@
+const gameService = require('../../../src/services/gameService');
+
+// Mock dependencies
+jest.mock('../../../src/repositories/gameRepository');
+jest.mock('../../../src/repositories/userRepository');
+jest.mock('../../../src/services/walletService');
+
+const gameRepository = require('../../../src/repositories/gameRepository');
+const userRepository = require('../../../src/repositories/userRepository');
+const walletService = require('../../../src/services/walletService');
+
+describe('GameService - Cash Game Entry', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should deduct entry fee and create cash game', async () => {
+    const userId = '507f1f77bcf86cd799439011';
+    const entryFee = 100;
+
+    // Mock user exists
+    userRepository.findById = jest.fn().mockResolvedValue({ _id: userId, name: 'Test' });
+
+    // Mock wallet processGameEntry
+    walletService.processGameEntry = jest.fn().mockResolvedValue({ coins: 1000 });
+
+    // Mock gameRepository.create to return created game
+    const createdGame = { _id: 'game123', gameType: 'cash', entryFee, players: [] };
+    gameRepository.create = jest.fn().mockResolvedValue(createdGame);
+
+    const game = await gameService.createCashGame(userId, entryFee, 4);
+
+    expect(userRepository.findById).toHaveBeenCalledWith(userId);
+    expect(walletService.processGameEntry).toHaveBeenCalledWith(userId, entryFee, null);
+    expect(gameRepository.create).toHaveBeenCalled();
+    expect(game).toBe(createdGame);
+  });
+
+  it('should throw if user not found', async () => {
+    const userId = '507f1f77bcf86cd799439099';
+    userRepository.findById = jest.fn().mockResolvedValue(null);
+
+    await expect(gameService.createCashGame(userId, 50, 4)).rejects.toThrow();
+  });
+});

@@ -27,13 +27,43 @@ const generateToken = (userId, additionalData = {}) => {
 };
 
 /**
+ * Generate Refresh Token
+ * @param {string} userId - User ID
+ * @param {object} additionalData - Additional data to include in token
+ * @returns {string} Refresh Token
+ */
+const generateRefreshToken = (userId, additionalData = {}) => {
+  try {
+    const payload = {
+      userId,
+      ...additionalData,
+      iat: Math.floor(Date.now() / 1000),
+    };
+
+    const token = jwt.sign(payload, config.jwtRefreshSecret || config.jwtSecret, {
+      expiresIn: config.jwtRefreshExpiry || '7d',
+      algorithm: 'HS256',
+    });
+
+    return token;
+  } catch (error) {
+    throw new Error(`Refresh token generation failed: ${error.message}`);
+  }
+};
+
+/**
  * Verify JWT Token
  * @param {string} token - JWT Token
+ * @param {boolean} isRefreshToken - Whether to verify as refresh token
  * @returns {object} Decoded token
  */
-const verifyToken = (token) => {
+const verifyToken = (token, isRefreshToken = false) => {
   try {
-    const decoded = jwt.verify(token, config.jwtSecret, {
+    const secret = isRefreshToken 
+      ? (config.jwtRefreshSecret || config.jwtSecret)
+      : config.jwtSecret;
+
+    const decoded = jwt.verify(token, secret, {
       algorithms: ['HS256'],
     });
     return decoded;
@@ -73,6 +103,7 @@ const extractTokenFromHeader = (authHeader) => {
 
 module.exports = {
   generateToken,
+  generateRefreshToken,
   verifyToken,
   decodeToken,
   extractTokenFromHeader,

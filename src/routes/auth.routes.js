@@ -1,36 +1,56 @@
 const express = require('express');
+const authController = require('../controllers/authController');
 const { authMiddleware } = require('../middlewares/auth.middleware');
 
 const router = express.Router();
 
-// TODO: POST /auth/verify - Verify Firebase token and create JWT
-router.post('/verify', (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route POST /api/v1/auth/verify
+ * @desc Verify Firebase token and create JWT
+ * @access Public
+ */
+router.post('/verify', authController.verifyFirebaseToken);
 
-// TODO: POST /auth/refresh-token - Refresh JWT token
-router.post('/refresh-token', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route POST /api/v1/auth/refresh-token
+ * @desc Refresh JWT token
+ * @access Public
+ */
+router.post('/refresh-token', authController.refreshToken);
 
-// TODO: POST /auth/logout - Logout user
-router.post('/logout', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route POST /api/v1/auth/logout
+ * @desc Logout user and remove device token
+ * @access Private
+ */
+router.post('/logout', authMiddleware, authController.logout);
 
-// TODO: GET /auth/profile - Get user profile
-router.get('/profile', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route GET /api/v1/auth/profile
+ * @desc Get user profile
+ * @access Private
+ */
+router.get('/profile', authMiddleware, authController.getProfile);
 
-// TODO: PUT /auth/profile - Update user profile
-router.put('/profile', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route PUT /api/v1/auth/profile
+ * @desc Update user profile
+ * @access Private
+ */
+router.put('/profile', authMiddleware, authController.updateProfile);
 
-// TODO: DELETE /auth/delete-account - Delete user account
-router.delete('/delete-account', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route DELETE /api/v1/auth/delete-account
+ * @desc Delete user account
+ * @access Private
+ */
+router.delete('/delete-account', authMiddleware, authController.deleteAccount);
+
+/**
+ * @route GET /api/v1/auth/status
+ * @desc Check user account status (ban/suspend)
+ * @access Private
+ */
+router.get('/status', authMiddleware, authController.checkStatus);
 
 module.exports = router;
