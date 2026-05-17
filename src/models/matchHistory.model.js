@@ -1,30 +1,44 @@
 const mongoose = require('mongoose');
 
+const participantSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    isBot: {
+      type: Boolean,
+      default: false,
+    },
+    playerColor: {
+      type: String,
+      default: null,
+    },
+    placement: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+    coinsWon: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    coinsLost: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+  },
+  { _id: false }
+);
+
 const matchHistorySchema = new mongoose.Schema(
   {
     gameId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Game',
-      required: true,
-    },
-    player1Id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    player2Id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    winner: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    loser: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
       required: true,
     },
     gameType: {
@@ -35,32 +49,31 @@ const matchHistorySchema = new mongoose.Schema(
     betAmount: {
       type: Number,
       default: 0,
-    },
-    coinsWon: {
-      type: Number,
-      default: 0,
-    },
-    coinsLost: {
-      type: Number,
-      default: 0,
+      min: 0,
     },
     duration: {
       type: Number,
-      default: 0, // in milliseconds
+      default: 0,
     },
     totalMoves: {
       type: Number,
       default: 0,
+    },
+    participants: {
+      type: [participantSchema],
+      required: true,
+      validate: [(v) => Array.isArray(v) && v.length >= 1, 'participants required'],
+    },
+    winnerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
     },
     startedAt: {
       type: Date,
       default: Date.now,
     },
     endedAt: {
-      type: Date,
-      default: Date.now,
-    },
-    createdAt: {
       type: Date,
       default: Date.now,
     },
@@ -71,10 +84,9 @@ const matchHistorySchema = new mongoose.Schema(
   }
 );
 
-// Indexes
-matchHistorySchema.index({ player1Id: 1, createdAt: -1 });
-matchHistorySchema.index({ player2Id: 1, createdAt: -1 });
-matchHistorySchema.index({ winner: 1 });
-matchHistorySchema.index({ createdAt: -1 });
+matchHistorySchema.index({ 'participants.userId': 1, endedAt: -1 });
+matchHistorySchema.index({ winnerId: 1 });
+matchHistorySchema.index({ gameType: 1, endedAt: -1 });
+matchHistorySchema.index({ endedAt: -1 });
 
 module.exports = mongoose.model('MatchHistory', matchHistorySchema);

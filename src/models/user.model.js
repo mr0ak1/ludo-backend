@@ -11,8 +11,9 @@ const userSchema = new mongoose.Schema(
     },
     firebaseUid: {
       type: String,
-      required: true,
+      required: false,
       unique: true,
+      sparse: true,
     },
     name: {
       type: String,
@@ -53,6 +54,39 @@ const userSchema = new mongoose.Schema(
       min: 0,
       max: 100,
     },
+    rankPoints: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    bestWinStreak: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    currentWinStreak: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalCoinsWon: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    totalCoinsLost: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    favoriteTokenColor: {
+      type: String,
+      default: null,
+    },
+    tokenColorWinCounts: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
+    },
     isBanned: {
       type: Boolean,
       default: false,
@@ -77,6 +111,16 @@ const userSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    isBot: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+    botLevel: {
+      type: String,
+      enum: ['easy', 'medium', 'hard', null],
+      default: null,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -97,5 +141,6 @@ userSchema.index({ phone: 1 });
 userSchema.index({ firebaseUid: 1 });
 userSchema.index({ createdAt: -1 });
 userSchema.index({ isBanned: 1 });
+userSchema.index({ isBot: 1, totalGames: -1, winRate: -1, wins: -1 });
 
 module.exports = mongoose.model('User', userSchema);

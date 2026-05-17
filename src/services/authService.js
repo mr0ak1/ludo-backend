@@ -1,49 +1,174 @@
-const admin = require('firebase-admin');
+const axios = require('axios');
+const crypto = require('crypto');
 const userRepository = require('../repositories/userRepository');
+const walletRepository = require('../repositories/walletRepository');
+const walletService = require('./walletService');
+const config = require('../config/env');
 const { generateToken, verifyToken, generateRefreshToken } = require('../utils/generateToken');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
 const logger = require('../utils/logger');
 
 class AuthService {
+  constructor() {
+    this.otpSessions = new Map();
+  }
+
+  _normalizePhone(phone) {
+    const raw = String(phone || '').trim();
+    if (!raw) return '';
+
+    if (raw.startsWith('+')) {
+      return raw.replace(/\s+/g, '');
+    }
+
+    const digits = raw.replace(/\D/g, '');
+    if (digits.length === 10) {
+      return `+${config.otp.countryCode}${digits}`;
+    }
+    return `+${digits}`;
+  }
+
+  _cleanupExpiredOtpSessions() {
+    const now = Date.now();
+    for (const [phone, record] of this.otpSessions.entries()) {
+      if (!record || record.expiresAt <= now) {
+        this.otpSessions.delete(phone);
+      }
+    }
+  }
+
   /**
-   * Verify Firebase token and create/update user
-   * @param {String} firebaseToken - Firebase ID token
+   * Send OTP via 2Factor
+   * @param {String} phone - User phone in E.164
+   * @returns {Promise<Object>}
+   */
+  async sendOtp(phone) {
+    try {
+      this._cleanupExpiredOtpSessions();
+
+      const normalizedPhone = this._normalizePhone(phone);
+      const now = Date.now();
+      const existing = this.otpSessions.get(normalizedPhone);
+
+      if (
+        existing &&
+        now - existing.requestedAt < config.otp.resendCooldownSeconds * 1000
+      ) {
+        const retryAfterSeconds = Math.ceil(
+          (config.otp.resendCooldownSeconds * 1000 - (now - existing.requestedAt)) / 1000
+        );
+        throw new ApiError(
+          HTTP_STATUS.TOO_MANY_REQUESTS,
+          `Please wait ${retryAfterSeconds}s before requesting another OTP`
+        );
+      }
+
+      const endpoint = `https://2factor.in/API/V1/${config.otp.twoFactorApiKey}/SMS/${encodeURIComponent(normalizedPhone)}/AUTOGEN`;
+      const response = await axios.get(endpoint, { timeout: 10000 });
+      const payload = response.data || {};
+
+      if (payload.Status !== 'Success' || !payload.Details) {
+        logger.error('2Factor send OTP failed:', payload);
+        throw new ApiError(HTTP_STATUS.BAD_GATEWAY, 'Failed to send OTP');
+      }
+
+      const sessionId = String(payload.Details);
+      this.otpSessions.set(normalizedPhone, {
+        sessionId,
+        requestedAt: now,
+        expiresAt: now + config.otp.sessionTtlSeconds * 1000,
+      });
+
+      return {
+        phone: normalizedPhone,
+        sessionId,
+        expiresInSeconds: config.otp.sessionTtlSeconds,
+        resendAfterSeconds: config.otp.resendCooldownSeconds,
+      };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      logger.error('Error sending OTP:', error.message);
+      throw new ApiError(HTTP_STATUS.BAD_GATEWAY, 'Unable to send OTP right now');
+    }
+  }
+
+  /**
+   * Verify OTP and login/register user
    * @param {String} phone - User phone number
+   * @param {String} otp - OTP entered by user
+   * @param {String} providedSessionId - Optional session ID from client
    * @returns {Promise<Object>} User object and tokens
    */
-  async verifyFirebaseTokenAndCreateUser(firebaseToken, phone) {
+  async verifyOtpAndAuthenticate(phone, otp, providedSessionId = null) {
     try {
-      // Verify Firebase token
-      const decodedToken = await admin.auth().verifyIdToken(firebaseToken);
-      const firebaseUid = decodedToken.uid;
+      this._cleanupExpiredOtpSessions();
 
-      logger.info(`Firebase token verified for UID: ${firebaseUid}`);
+      const normalizedPhone = this._normalizePhone(phone);
+      const otpSession = this.otpSessions.get(normalizedPhone);
 
-      // Check if user already exists
-      let user = await userRepository.findByFirebaseUid(firebaseUid);
+      if (!otpSession || otpSession.expiresAt <= Date.now()) {
+        this.otpSessions.delete(normalizedPhone);
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'OTP session expired. Please request OTP again');
+      }
 
-      if (user) {
-        // Update last active
-        await userRepository.updateLastActive(user._id);
-        logger.info(`User logged in: ${user._id}`);
-      } else {
-        // Create new user on first login
+      if (providedSessionId && otpSession.sessionId !== providedSessionId) {
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'OTP session mismatch');
+      }
+
+      const verifyEndpoint = `https://2factor.in/API/V1/${config.otp.twoFactorApiKey}/SMS/VERIFY/${encodeURIComponent(otpSession.sessionId)}/${encodeURIComponent(String(otp))}`;
+      const verifyResponse = await axios.get(verifyEndpoint, { timeout: 10000 });
+      const verifyPayload = verifyResponse.data || {};
+
+      if (verifyPayload.Status !== 'Success') {
+        throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid OTP');
+      }
+
+      let user = await userRepository.findByPhone(normalizedPhone);
+      const welcomeBonus = Number(config.welcomeBonus);
+      const initialCoins = Number.isFinite(welcomeBonus) && welcomeBonus >= 0
+        ? welcomeBonus
+        : config.defaultCoins;
+      const isNewUser = !user;
+
+      if (isNewUser) {
+        const phoneDigits = normalizedPhone.replace(/\D/g, '');
         user = await userRepository.create({
-          phone,
-          firebaseUid,
-          name: decodedToken.name || 'Player',
-          email: decodedToken.email || null,
-          avatar: decodedToken.picture || null,
-          coins: 500, // Default starting coins
+          phone: normalizedPhone,
+          firebaseUid: `otp_${phoneDigits}`,
+          name: `Player${crypto.randomInt(1000, 9999)}`,
+          email: null,
+          avatar: null,
+          coins: initialCoins,
           wins: 0,
           losses: 0,
           totalGames: 0,
           winRate: 0,
         });
 
-        logger.info(`New user created: ${user._id}`);
+        await walletService.initializeWallet(user._id, initialCoins);
+        logger.info(`New OTP user created: ${user._id}`);
+      } else {
+        await userRepository.updateLastActive(user._id);
+
+        // Ensure wallet exists for existing users as many flows expect wallet upfront
+        const existingWallet = await walletRepository.findByUserId(user._id);
+        if (!existingWallet) {
+          await walletService.initializeWallet(user._id, user.coins || config.defaultCoins);
+        }
+
+        if (user.isBanned) {
+          throw new ApiError(HTTP_STATUS.FORBIDDEN, `Account banned: ${user.banReason || 'No reason provided'}`);
+        }
+
+        if (user.isSuspended) {
+          throw new ApiError(HTTP_STATUS.FORBIDDEN, `Account suspended: ${user.suspendReason || 'No reason provided'}`);
+        }
+
+        logger.info(`OTP user login: ${user._id}`);
       }
+
+      this.otpSessions.delete(normalizedPhone);
 
       // Generate JWT tokens
       const accessToken = generateToken(user._id);
@@ -53,6 +178,7 @@ class AuthService {
         user,
         accessToken,
         refreshToken,
+        isNewUser,
         message: 'Authentication successful',
       };
     } catch (error) {
@@ -60,8 +186,8 @@ class AuthService {
         throw error;
       }
 
-      logger.error('Firebase token verification failed:', error);
-      throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid Firebase token');
+      logger.error('OTP verification/login failed:', error);
+      throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'OTP authentication failed');
     }
   }
 

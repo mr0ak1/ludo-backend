@@ -4,6 +4,19 @@ const gameService = require('../../../src/services/gameService');
 jest.mock('../../../src/repositories/gameRepository');
 jest.mock('../../../src/repositories/userRepository');
 jest.mock('../../../src/services/walletService');
+jest.mock('../../../src/services/notificationService', () => ({
+  notifyGameStarted: jest.fn().mockResolvedValue({}),
+  notifyYourTurn: jest.fn().mockResolvedValue({}),
+  notifyMatchFound: jest.fn().mockResolvedValue({}),
+  notifyGameEnded: jest.fn().mockResolvedValue({}),
+  notifyWalletUpdate: jest.fn().mockResolvedValue({}),
+  notifyBonus: jest.fn().mockResolvedValue({}),
+  createNotification: jest.fn().mockResolvedValue({}),
+  getNotifications: jest.fn(),
+  markAsRead: jest.fn(),
+  registerDeviceToken: jest.fn(),
+  cleanupExpiredBefore: jest.fn(),
+}));
 
 const gameRepository = require('../../../src/repositories/gameRepository');
 const userRepository = require('../../../src/repositories/userRepository');

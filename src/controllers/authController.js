@@ -6,23 +6,49 @@ const { HTTP_STATUS } = require('../constants/http.constants');
 const logger = require('../utils/logger');
 
 /**
- * Verify Firebase token and create JWT
- * POST /api/v1/auth/verify
+ * Send OTP to phone
+ * POST /api/v1/auth/send-otp
  */
-const verifyFirebaseToken = async (req, res, next) => {
+const sendOtp = async (req, res, next) => {
   try {
-    const { error, value } = authValidator.validateVerifyToken(req.body);
+    const { error, value } = authValidator.validateSendOtp(req.body);
 
     if (error) {
       const errors = authValidator.formatValidationErrors(error);
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    const { firebaseToken, phone, deviceToken } = value;
+    const { phone } = value;
 
-    const result = await authService.verifyFirebaseTokenAndCreateUser(
-      firebaseToken,
-      phone
+    const result = await authService.sendOtp(phone);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'OTP sent successfully', result)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Verify OTP and create/login user
+ * POST /api/v1/auth/verify-otp
+ */
+const verifyOtp = async (req, res, next) => {
+  try {
+    const { error, value } = authValidator.validateVerifyOtp(req.body);
+
+    if (error) {
+      const errors = authValidator.formatValidationErrors(error);
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
+    }
+
+    const { phone, otp, sessionId, deviceToken } = value;
+
+    const result = await authService.verifyOtpAndAuthenticate(
+      phone,
+      otp,
+      sessionId
     );
 
     // Add device token if provided
@@ -178,7 +204,8 @@ const checkStatus = async (req, res, next) => {
 };
 
 module.exports = {
-  verifyFirebaseToken,
+  sendOtp,
+  verifyOtp,
   refreshToken,
   logout,
   getProfile,

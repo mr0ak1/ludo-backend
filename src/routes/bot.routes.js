@@ -1,16 +1,23 @@
 const express = require('express');
 const { authMiddleware } = require('../middlewares/auth.middleware');
+const botController = require('../controllers/botController');
 
 const router = express.Router();
 
-// TODO: POST /bot/move - Get bot move
-router.post('/move', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * POST /api/v1/bot/create-game
+ * Create a new game against a bot opponent
+ * Body: {
+ *   difficulty?: 'easy' | 'medium' | 'hard' (default: 'medium'),
+ *   entryFee?: number (default: 0)
+ * }
+ */
+router.post('/create-game', authMiddleware, botController.createBotGame);
 
-// TODO: POST /bot/difficulty - Set bot difficulty
-router.post('/difficulty', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * GET /api/v1/bot/difficulties
+ * Get list of available bot difficulty levels with descriptions
+ */
+router.get('/difficulties', authMiddleware, botController.getBotDifficulties);
 
 module.exports = router;

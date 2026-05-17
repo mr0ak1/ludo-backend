@@ -8,9 +8,6 @@ const requiredEnvVars = [
   'MONGO_URI',
   'JWT_SECRET',
   'JWT_EXPIRE',
-  'FIREBASE_PROJECT_ID',
-  'FIREBASE_PRIVATE_KEY',
-  'FIREBASE_CLIENT_EMAIL',
   'CLIENT_URL',
   'ADMIN_URL',
 ];
@@ -20,6 +17,14 @@ requiredEnvVars.forEach((envVar) => {
     throw new Error(`Missing required environment variable: ${envVar}`);
   }
 });
+
+// OTP API key is required in production but optional for local/dev setups.
+if (process.env.NODE_ENV === 'production' && !process.env.OTP_2FACTOR_API_KEY) {
+  throw new Error('Missing required environment variable: OTP_2FACTOR_API_KEY');
+} else if (!process.env.OTP_2FACTOR_API_KEY) {
+  // eslint-disable-next-line no-console
+  console.warn('Warning: OTP_2FACTOR_API_KEY is not set — OTP provider will be disabled in non-production environment.');
+}
 
 module.exports = {
   // Server
@@ -35,6 +40,14 @@ module.exports = {
   // JWT
   jwtSecret: process.env.JWT_SECRET,
   jwtExpiry: process.env.JWT_EXPIRE || '7d',
+
+  // OTP
+  otp: {
+    twoFactorApiKey: process.env.OTP_2FACTOR_API_KEY,
+    countryCode: process.env.OTP_COUNTRY_CODE || '91',
+    resendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS, 10) || 60,
+    sessionTtlSeconds: parseInt(process.env.OTP_SESSION_TTL_SECONDS, 10) || 300,
+  },
 
   // Firebase
   firebase: {
@@ -59,6 +72,7 @@ module.exports = {
 
   // Game Config
   defaultCoins: parseInt(process.env.DEFAULT_COINS, 10) || 500,
+  welcomeBonus: parseInt(process.env.WELCOME_BONUS, 10) || parseInt(process.env.DEFAULT_COINS, 10) || 500,
   defaultBetAmount: parseInt(process.env.DEFAULT_BET_AMOUNT, 10) || 100,
   turnTimeoutSeconds: parseInt(process.env.TURN_TIMEOUT_SECONDS, 10) || 20,
   queueTimeoutSeconds: parseInt(process.env.QUEUE_TIMEOUT_SECONDS, 10) || 10,

@@ -1,7 +1,15 @@
+const mongoose = require('mongoose');
 const Game = require('../models/game.model');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
 const logger = require('../utils/logger');
+
+function _getQuery(gameId) {
+  if (mongoose.isValidObjectId(gameId)) {
+    return { $or: [{ _id: gameId }, { gameId: gameId }] };
+  }
+  return { gameId: gameId };
+}
 
 class GameRepository {
   /**
@@ -30,7 +38,7 @@ class GameRepository {
    */
   async findById(gameId) {
     try {
-      const game = await Game.findById(gameId).populate('players.userId');
+      const game = await Game.findOne(_getQuery(gameId)).populate('players.userId');
       return game;
     } catch (error) {
       logger.error('Error finding game:', error);
@@ -103,7 +111,7 @@ class GameRepository {
 
       const games = await Game.find({
         status: 'waiting',
-        $expr: { $lt: [{ $size: '$players' }, 4] },
+        $expr: { $lt: [{ $size: '$players' }, '$maxPlayers'] },
       })
         .skip(skip)
         .limit(limit)
@@ -112,7 +120,7 @@ class GameRepository {
 
       const total = await Game.countDocuments({
         status: 'waiting',
-        $expr: { $lt: [{ $size: '$players' }, 4] },
+        $expr: { $lt: [{ $size: '$players' }, '$maxPlayers'] },
       });
 
       return {
@@ -176,11 +184,12 @@ class GameRepository {
    * @param {Object} updateData - Data to update
    * @returns {Promise<Object>} Updated game
    */
-  async update(gameId, updateData) {
+  async update(gameId, updateData, options = {}) {
     try {
-      const game = await Game.findByIdAndUpdate(gameId, updateData, {
+      const game = await Game.findOneAndUpdate(_getQuery(gameId), updateData, {
         new: true,
         runValidators: true,
+        ...options,
       }).populate('players.userId');
 
       if (!game) {
@@ -204,8 +213,8 @@ class GameRepository {
    */
   async addPlayer(gameId, playerData) {
     try {
-      const game = await Game.findByIdAndUpdate(
-        gameId,
+      const game = await Game.findOneAndUpdate(
+        _getQuery(gameId),
         {
           $push: { 'players': playerData },
         },
@@ -216,9 +225,13 @@ class GameRepository {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
       }
 
-      // Start game if 4 players joined
-      if (game.players.length === 4) {
+      // Start game when the configured player count is reached
+      if (game.players.length === game.maxPlayers) {
         game.status = 'ongoing';
+        if (!game.startTime) {
+          game.startTime = new Date();
+          game.turnStartedAt = new Date();
+        }
         await game.save();
       }
 
@@ -238,15 +251,42 @@ class GameRepository {
    * @param {Object} boardData - Board state
    * @returns {Promise<Object>} Updated game
    */
-  async updatePlayerBoard(gameId, playerIndex, boardData) {
+  async updatePlayerBoard(gameId, playerIndex, boardData, options = {}) {
     try {
-      const updatePath = `players.${playerIndex}.board`;
-      const game = await Game.findByIdAndUpdate(
-        gameId,
+      const updatePath = `players.${playerIndex}`;
+      const updates = {};
+
+      if (boardData.tokens !== undefined) {
+        updates[`${updatePath}.tokens`] = boardData.tokens;
+      }
+
+      if (boardData.isHome !== undefined) {
+        updates[`${updatePath}.isHome`] = boardData.isHome;
+      }
+
+      if (boardData.consecutiveSixes !== undefined) {
+        updates[`${updatePath}.consecutiveSixes`] = boardData.consecutiveSixes;
+      }
+
+      if (boardData.diceCount !== undefined) {
+        updates[`${updatePath}.diceCount`] = boardData.diceCount;
+      }
+
+      if (boardData.disconnectedAt !== undefined) {
+        updates[`${updatePath}.disconnectedAt`] = boardData.disconnectedAt;
+      }
+
+      if (boardData.isActive !== undefined) {
+        updates[`${updatePath}.isActive`] = boardData.isActive;
+      }
+
+      const game = await Game.findOneAndUpdate(
+        _getQuery(gameId),
         {
-          $set: { [updatePath]: boardData },
+          $set: updates,
+          $inc: { currentTurnCount: 1 }
         },
-        { new: true }
+        { new: true, ...options }
       ).populate('players.userId');
 
       if (!game) {
@@ -267,10 +307,10 @@ class GameRepository {
    * @param {Object} moveData - Move details
    * @returns {Promise<Object>} Updated game
    */
-  async addMove(gameId, moveData) {
+  async addMove(gameId, moveData, options = {}) {
     try {
-      const game = await Game.findByIdAndUpdate(
-        gameId,
+      const game = await Game.findOneAndUpdate(
+        _getQuery(gameId),
         {
           $push: {
             moves: {
@@ -278,8 +318,9 @@ class GameRepository {
               timestamp: new Date(),
             },
           },
+          $inc: { currentTurnCount: 1 }
         },
-        { new: true }
+        { new: true, ...options }
       ).populate('players.userId');
 
       if (!game) {
@@ -300,17 +341,18 @@ class GameRepository {
    * @param {Number} newTurn - New player turn index
    * @returns {Promise<Object>} Updated game
    */
-  async updateCurrentTurn(gameId, newTurn) {
+  async updateCurrentTurn(gameId, newTurn, options = {}) {
     try {
-      const game = await Game.findByIdAndUpdate(
-        gameId,
+      const game = await Game.findOneAndUpdate(
+        _getQuery(gameId),
         {
           $set: {
             currentTurn: newTurn,
-            lastMoveTime: new Date(),
+            turnStartedAt: new Date(),
           },
+          $inc: { currentTurnCount: 1 }
         },
-        { new: true }
+        { new: true, ...options }
       ).populate('players.userId');
 
       if (!game) {
@@ -331,18 +373,19 @@ class GameRepository {
    * @param {Object} results - Game results
    * @returns {Promise<Object>} Updated game
    */
-  async completeGame(gameId, results) {
+  async completeGame(gameId, results, options = {}) {
     try {
-      const game = await Game.findByIdAndUpdate(
-        gameId,
+      const game = await Game.findOneAndUpdate(
+        _getQuery(gameId),
         {
           $set: {
             status: 'completed',
             endTime: new Date(),
             results,
           },
+          $inc: { currentTurnCount: 1 }
         },
-        { new: true }
+        { new: true, ...options }
       ).populate('players.userId');
 
       if (!game) {
@@ -364,18 +407,19 @@ class GameRepository {
    * @param {String} userId - User ID
    * @returns {Promise<Object>} Updated game
    */
-  async surrenderGame(gameId, userId) {
+  async surrenderGame(gameId, userId, options = {}) {
     try {
-      const game = await Game.findByIdAndUpdate(
-        gameId,
+      const game = await Game.findOneAndUpdate(
+        _getQuery(gameId),
         {
           $set: {
             status: 'surrendered',
             endTime: new Date(),
             'results.surrenderedBy': userId,
           },
+          $inc: { currentTurnCount: 1 }
         },
-        { new: true }
+        { new: true, ...options }
       ).populate('players.userId');
 
       if (!game) {
@@ -398,7 +442,7 @@ class GameRepository {
    */
   async delete(gameId) {
     try {
-      const result = await Game.findByIdAndDelete(gameId);
+      const result = await Game.findOneAndDelete(_getQuery(gameId));
       if (!result) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
       }

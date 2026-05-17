@@ -5,11 +5,25 @@ const { authMiddleware } = require('../middlewares/auth.middleware');
 const router = express.Router();
 
 /**
- * @route POST /api/v1/auth/verify
- * @desc Verify Firebase token and create JWT
+ * @route POST /api/v1/auth/send-otp
+ * @desc Send OTP to user's phone
  * @access Public
  */
-router.post('/verify', authController.verifyFirebaseToken);
+router.post('/send-otp', authController.sendOtp);
+
+/**
+ * @route POST /api/v1/auth/verify-otp
+ * @desc Verify OTP and login/register user
+ * @access Public
+ */
+router.post('/verify-otp', authController.verifyOtp);
+
+/**
+ * @route POST /api/v1/auth/verify
+ * @desc Backward-compatible alias for OTP verification
+ * @access Public
+ */
+router.post('/verify', authController.verifyOtp);
 
 /**
  * @route POST /api/v1/auth/refresh-token

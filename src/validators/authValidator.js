@@ -17,12 +17,14 @@ const emailSchema = Joi.string()
     'string.email': 'Please provide a valid email address',
   });
 
-// Firebase token validation
-const firebaseTokenSchema = Joi.string()
+// OTP validation
+const otpSchema = Joi.string()
+  .pattern(/^\d{4,8}$/)
   .required()
   .messages({
-    'any.required': 'Firebase token is required',
-    'string.empty': 'Firebase token cannot be empty',
+    'string.pattern.base': 'OTP must be 4 to 8 digits',
+    'any.required': 'OTP is required',
+    'string.empty': 'OTP cannot be empty',
   });
 
 // Name validation
@@ -45,14 +47,28 @@ const avatarSchema = Joi.string()
   });
 
 /**
- * Validate Firebase token verification request
+ * Validate send OTP request
  * @param {Object} data - Request body
  * @returns {Object} Validation result
  */
-const validateVerifyToken = (data) => {
+const validateSendOtp = (data) => {
   const schema = Joi.object({
-    firebaseToken: firebaseTokenSchema,
     phone: phoneSchema,
+  });
+
+  return schema.validate(data, { abortEarly: false });
+};
+
+/**
+ * Validate OTP verification request
+ * @param {Object} data - Request body
+ * @returns {Object} Validation result
+ */
+const validateVerifyOtp = (data) => {
+  const schema = Joi.object({
+    phone: phoneSchema,
+    otp: otpSchema,
+    sessionId: Joi.string().optional(),
     deviceToken: Joi.string().optional(),
   });
 
@@ -137,7 +153,8 @@ const formatValidationErrors = (error) => {
 };
 
 module.exports = {
-  validateVerifyToken,
+  validateSendOtp,
+  validateVerifyOtp,
   validateRefreshToken,
   validateLogout,
   validateUpdateProfile,
@@ -146,7 +163,7 @@ module.exports = {
   // Export schemas for reuse
   phoneSchema,
   emailSchema,
-  firebaseTokenSchema,
+  otpSchema,
   nameSchema,
   avatarSchema,
 };

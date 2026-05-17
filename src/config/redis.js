@@ -5,11 +5,20 @@ let redisClient;
 
 const initializeRedis = async () => {
   try {
+    if (config.isDevelopment) {
+      console.warn('Redis connection skipped in development (optional service).');
+      return null;
+    }
+
     if (!redisClient) {
       redisClient = redis.createClient({
         url: config.redisUrl,
         socket: {
+          connectTimeout: 2000,
           reconnectStrategy: (retries) => {
+            if (config.isDevelopment) {
+              return false;
+            }
             if (retries > 10) {
               console.error('Redis max retries exceeded');
               return new Error('Redis max retries exceeded');

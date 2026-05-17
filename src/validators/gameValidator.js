@@ -78,11 +78,13 @@ const validateCreateCashGame = (data) => {
 const validateJoinGame = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
+        'string.min': 'Game ID must be a valid identifier',
+        'string.max': 'Game ID must be a valid identifier',
         'any.required': 'Game ID is required',
       }),
   });
@@ -98,11 +100,13 @@ const validateJoinGame = (data) => {
 const validateGetGameDetails = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
+        'string.min': 'Game ID must be a valid identifier',
+        'string.max': 'Game ID must be a valid identifier',
         'any.required': 'Game ID is required',
       }),
   });
@@ -118,12 +122,16 @@ const validateGetGameDetails = (data) => {
 const validateRollDice = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
+      .required(),
+    turnVersion: Joi.number()
+      .integer()
+      .min(0)
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
-        'any.required': 'Game ID is required',
+        'any.required': 'turnVersion is required for state synchronization',
       }),
   });
 
@@ -138,22 +146,21 @@ const validateRollDice = (data) => {
 const validateMoveToken = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
-      .required()
-      .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
-        'any.required': 'Game ID is required',
-      }),
+      .required(),
     tokenIndex: Joi.number()
       .integer()
       .min(0)
       .max(3)
+      .required(),
+    turnVersion: Joi.number()
+      .integer()
+      .min(0)
       .required()
       .messages({
-        'number.min': 'Token index must be 0-3',
-        'number.max': 'Token index must be 0-3',
-        'any.required': 'Token index is required',
+        'any.required': 'turnVersion is required for state synchronization',
       }),
   });
 
@@ -168,12 +175,16 @@ const validateMoveToken = (data) => {
 const validateSkipTurn = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
+      .required(),
+    turnVersion: Joi.number()
+      .integer()
+      .min(0)
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
-        'any.required': 'Game ID is required',
+        'any.required': 'turnVersion is required for state synchronization',
       }),
   });
 
@@ -188,11 +199,13 @@ const validateSkipTurn = (data) => {
 const validateSurrenderGame = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
+        'string.min': 'Game ID must be a valid identifier',
+        'string.max': 'Game ID must be a valid identifier',
         'any.required': 'Game ID is required',
       }),
   });
@@ -208,11 +221,13 @@ const validateSurrenderGame = (data) => {
 const validateEndGame = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
+        'string.min': 'Game ID must be a valid identifier',
+        'string.max': 'Game ID must be a valid identifier',
         'any.required': 'Game ID is required',
       }),
   });
@@ -228,11 +243,13 @@ const validateEndGame = (data) => {
 const validateReconnect = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
+        'string.min': 'Game ID must be a valid identifier',
+        'string.max': 'Game ID must be a valid identifier',
         'any.required': 'Game ID is required',
       }),
   });
@@ -248,11 +265,13 @@ const validateReconnect = (data) => {
 const validateRestoreGameState = (data) => {
   const schema = Joi.object({
     gameId: Joi.string()
-      .length(24)
+      .min(16)
+      .max(24)
       .hex()
       .required()
       .messages({
-        'string.length': 'Game ID must be a valid MongoDB ObjectId',
+        'string.min': 'Game ID must be a valid identifier',
+        'string.max': 'Game ID must be a valid identifier',
         'any.required': 'Game ID is required',
       }),
   });

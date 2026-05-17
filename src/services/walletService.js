@@ -1,6 +1,7 @@
 const walletRepository = require('../repositories/walletRepository');
 const transactionRepository = require('../repositories/transactionRepository');
 const userRepository = require('../repositories/userRepository');
+const notificationService = require('./notificationService');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
 const logger = require('../utils/logger');
@@ -38,6 +39,17 @@ class WalletService {
       });
 
       logger.info(`Wallet initialized for user ${userId} with ${initialCoins} coins`);
+
+      setImmediate(() => {
+        notificationService
+          .notifyBonus(userId, {
+            title: 'Welcome bonus',
+            body: `You received ${initialCoins} coins to get started.`,
+            data: { kind: 'sign_up' },
+          })
+          .catch((e) => logger.error('notifyBonus failed:', e.message));
+      });
+
       return wallet;
     } catch (error) {
       if (error instanceof ApiError) throw error;
@@ -148,6 +160,18 @@ class WalletService {
 
       logger.info(`Added ${amount} coins to user ${userId}: ${reason}`);
 
+      setImmediate(() => {
+        notificationService
+          .notifyWalletUpdate(userId, {
+            amount,
+            direction: 'credit',
+            balanceAfter: updatedWallet.coins,
+            reason: reason || 'Coins added',
+            refId: userId,
+          })
+          .catch((e) => logger.error('notifyWalletUpdate failed:', e.message));
+      });
+
       return updatedWallet;
     } catch (error) {
       if (error instanceof ApiError) throw error;
@@ -197,6 +221,18 @@ class WalletService {
       });
 
       logger.info(`Deducted ${amount} coins from user ${userId}: ${reason}`);
+
+      setImmediate(() => {
+        notificationService
+          .notifyWalletUpdate(userId, {
+            amount,
+            direction: 'debit',
+            balanceAfter: updatedWallet.coins,
+            reason: reason || 'Coins deducted',
+            refId: userId,
+          })
+          .catch((e) => logger.error('notifyWalletUpdate failed:', e.message));
+      });
 
       return updatedWallet;
     } catch (error) {
@@ -262,11 +298,15 @@ class WalletService {
    * @param {String} gameId - Game ID
    * @returns {Promise<Object>} Updated wallet
    */
-  async processGameEntry(userId, entryFee, gameId) {
+  async processGameEntry(userId, entryFee, gameId, options = {}) {
     try {
-      let wallet = await walletRepository.findByUserId(userId);
+      let wallet = await walletRepository.findByUserId(userId, options);
       if (!wallet) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
+      }
+
+      if (!entryFee || entryFee <= 0) {
+        return wallet;
       }
 
       // Check if wallet is locked
@@ -282,10 +322,10 @@ class WalletService {
       const previousBalance = wallet.coins;
 
       // Deduct entry fee
-      const updatedWallet = await walletRepository.deductCoins(userId, entryFee, `Game entry: ${gameId}`);
+      const updatedWallet = await walletRepository.deductCoins(userId, entryFee, `Game entry: ${gameId}`, options);
 
       // Lock wallet during game
-      await walletRepository.lockWallet(userId, `Game in progress: ${gameId}`);
+      await walletRepository.lockWallet(userId, `Game in progress: ${gameId}`, options);
 
       // Log transaction
       await transactionRepository.create({
@@ -295,9 +335,21 @@ class WalletService {
         reason: `Game entry fee for ${gameId}`,
         beforeBalance: previousBalance,
         afterBalance: updatedWallet.coins,
-      });
+      }, options);
 
       logger.info(`Game entry processed for user ${userId}: ${entryFee} coins for game ${gameId}`);
+
+      setImmediate(() => {
+        notificationService
+          .notifyWalletUpdate(userId, {
+            amount: entryFee,
+            direction: 'debit',
+            balanceAfter: updatedWallet.coins,
+            reason: 'Game entry fee',
+            refId: gameId,
+          })
+          .catch((e) => logger.error('notifyWalletUpdate failed:', e.message));
+      });
 
       return updatedWallet;
     } catch (error) {
@@ -314,20 +366,25 @@ class WalletService {
    * @param {String} gameId - Game ID
    * @returns {Promise<Object>} Updated wallet
    */
-  async processGameReward(userId, rewardAmount, gameId) {
+  async processGameReward(userId, rewardAmount, gameId, options = {}) {
     try {
-      let wallet = await walletRepository.findByUserId(userId);
+      let wallet = await walletRepository.findByUserId(userId, options);
       if (!wallet) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
+      }
+
+      if (!rewardAmount || rewardAmount <= 0) {
+        await walletRepository.unlockWallet(userId, options);
+        return wallet;
       }
 
       const previousBalance = wallet.coins;
 
       // Add reward
-      const updatedWallet = await walletRepository.addCoins(userId, rewardAmount, `Game reward: ${gameId}`);
+      const updatedWallet = await walletRepository.addCoins(userId, rewardAmount, `Game reward: ${gameId}`, options);
 
       // Unlock wallet
-      await walletRepository.unlockWallet(userId);
+      await walletRepository.unlockWallet(userId, options);
 
       // Log transaction
       await transactionRepository.create({
@@ -337,9 +394,21 @@ class WalletService {
         reason: `Game reward for ${gameId}`,
         beforeBalance: previousBalance,
         afterBalance: updatedWallet.coins,
-      });
+      }, options);
 
       logger.info(`Game reward processed for user ${userId}: +${rewardAmount} coins for game ${gameId}`);
+
+      setImmediate(() => {
+        notificationService
+          .notifyWalletUpdate(userId, {
+            amount: rewardAmount,
+            direction: 'credit',
+            balanceAfter: updatedWallet.coins,
+            reason: 'Game reward',
+            refId: gameId,
+          })
+          .catch((e) => logger.error('notifyWalletUpdate failed:', e.message));
+      });
 
       return updatedWallet;
     } catch (error) {

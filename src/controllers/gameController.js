@@ -132,7 +132,7 @@ const rollDice = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    const result = await gameService.rollDice(value.gameId, userId);
+    const result = await gameService.rollDice(value.gameId, userId, value.turnVersion);
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Dice rolled successfully', result)
@@ -156,17 +156,11 @@ const moveToken = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    // Get last dice roll value from request
-    const diceValue = req.body.diceValue;
-    if (!diceValue || diceValue < 1 || diceValue > 6) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid dice value');
-    }
-
     const game = await gameService.moveToken(
       value.gameId,
       userId,
       value.tokenIndex,
-      diceValue
+      value.turnVersion
     );
 
     res.status(HTTP_STATUS.OK).json(
@@ -191,7 +185,7 @@ const skipTurn = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    const game = await gameService.skipTurn(value.gameId, userId);
+    const game = await gameService.skipTurn(value.gameId, userId, value.turnVersion);
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Turn skipped successfully', game)

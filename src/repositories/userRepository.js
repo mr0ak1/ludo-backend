@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const User = require('../models/user.model');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
@@ -356,6 +357,123 @@ class UserRepository {
       return user.toObject();
     } catch (error) {
       logger.error('Error removing device token:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Find bot users
+   * @param {Object} query - MongoDB query filter
+   * @param {Number} limit - Max number of bots to return
+   * @returns {Promise<Array>} Array of bot users
+   */
+  async findBots(query = {}, limit = 1) {
+    try {
+      const defaultQuery = { isBot: true, ...query };
+      const bots = await User.find(defaultQuery)
+        .select('-__v')
+        .limit(limit)
+        .sort({ createdAt: 1 });
+
+      return bots.map(bot => bot.toObject());
+    } catch (error) {
+      logger.error('Error finding bots:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Lightweight lookup: userId -> isBot
+   * @param {string[]} userIds
+   * @returns {Promise<Record<string, { isBot: boolean }>>}
+   */
+  async getIsBotMapByIds(userIds) {
+    if (!userIds || userIds.length === 0) return {};
+    try {
+      const oids = userIds.map((id) => new mongoose.Types.ObjectId(id));
+      const rows = await User.find({ _id: { $in: oids } })
+        .select('_id isBot')
+        .lean();
+      const map = {};
+      for (const r of rows) {
+        map[r._id.toString()] = { isBot: !!r.isBot };
+      }
+      return map;
+    } catch (error) {
+      logger.error('Error getIsBotMapByIds:', error);
+      return {};
+    }
+  }
+
+  /**
+   * Update cumulative stats after a ranked/casual game (Cluster 9).
+   * Skips bots.
+   * @param {string} userId
+   * @param {{ won: boolean, netCoinsWon?: number, netCoinsLost?: number, tokenColor?: string|null, rankPointsDelta: number }} delta
+   */
+  async updateGameStats(userId, delta, options = {}) {
+    try {
+      const user = await User.findById(userId).session(options.session).select(
+        'wins losses totalGames winRate isBot currentWinStreak bestWinStreak favoriteTokenColor tokenColorWinCounts rankPoints totalCoinsWon totalCoinsLost'
+      );
+      if (!user || user.isBot) {
+        return null;
+      }
+
+      const won = !!delta.won;
+      const newWins = user.wins + (won ? 1 : 0);
+      const newLosses = user.losses + (won ? 0 : 1);
+      const newTotal = user.totalGames + 1;
+      const newWinRate = newTotal > 0 ? Math.round((newWins / newTotal) * 10000) / 100 : 0;
+
+      const newStreak = won ? (user.currentWinStreak || 0) + 1 : 0;
+      const best = Math.max(user.bestWinStreak || 0, newStreak);
+
+      const colorCounts =
+        user.tokenColorWinCounts && typeof user.tokenColorWinCounts === 'object'
+          ? { ...user.tokenColorWinCounts }
+          : {};
+      if (won && delta.tokenColor) {
+        colorCounts[delta.tokenColor] = (colorCounts[delta.tokenColor] || 0) + 1;
+      }
+      let favorite = user.favoriteTokenColor || null;
+      let maxC = 0;
+      for (const [c, n] of Object.entries(colorCounts)) {
+        if (n > maxC) {
+          maxC = n;
+          favorite = c;
+        }
+      }
+
+      const incCoinsWon = Math.max(0, Number(delta.netCoinsWon) || 0);
+      const incCoinsLost = Math.max(0, Number(delta.netCoinsLost) || 0);
+
+      const updated = await User.findByIdAndUpdate(
+        userId,
+        {
+          $inc: {
+            wins: won ? 1 : 0,
+            losses: won ? 0 : 1,
+            totalGames: 1,
+            rankPoints: delta.rankPointsDelta || 0,
+            totalCoinsWon: incCoinsWon,
+            totalCoinsLost: incCoinsLost,
+          },
+          $set: {
+            winRate: newWinRate,
+            currentWinStreak: newStreak,
+            bestWinStreak: best,
+            favoriteTokenColor: favorite,
+            tokenColorWinCounts: colorCounts,
+            updatedAt: new Date(),
+          },
+        },
+        { new: true, runValidators: true, ...options }
+      ).select('-__v');
+
+      return updated ? updated.toObject() : null;
+    } catch (error) {
+      logger.error('Error updating game stats:', error);
       throw error;
     }
   }

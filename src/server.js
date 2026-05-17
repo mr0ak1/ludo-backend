@@ -4,7 +4,8 @@ const app = require('./app');
 const { connectDB, disconnectDB } = require('./config/db');
 const { initializeFirebase } = require('./config/firebase');
 const { initializeRedis } = require('./config/redis');
-const { configureSocket } = require('./config/socket');
+const { configureSocket, getSocketOptions } = require('./config/socket');
+const { registerNotificationGameListeners } = require('./utils/registerNotificationListeners');
 const config = require('./config/env');
 
 // Import socket handlers
@@ -15,7 +16,9 @@ const botSocket = require('./sockets/bot.socket');
 const server = http.createServer(app);
 
 // Socket.io Configuration
-const io = new Server(server, configureSocket({}));
+const io = new Server(server, getSocketOptions());
+configureSocket(io);
+app.set('io', io);
 
 // Socket event handlers
 io.on('connection', (socket) => {
@@ -30,8 +33,16 @@ io.on('connection', (socket) => {
   // Bot events
   botSocket(socket, io);
 
-  socket.on('disconnect', () => {
-    console.log(`Client disconnected: ${socket.id}`);
+  socket.on('disconnect', async () => {
+    console.log(`Client disconnected: ${socket.id}, User: ${socket.userId || 'Guest'}`);
+    if (socket.userId) {
+      try {
+        const gameService = require('./services/gameService');
+        await gameService.handleDisconnect(socket.userId);
+      } catch (err) {
+        console.error('Error handling disconnect for user:', socket.userId, err.message);
+      }
+    }
   });
 });
 
@@ -84,6 +95,12 @@ const startServer = async () => {
 
     // Connect to database
     await connectDB();
+
+    const { initializeGameWorkers } = require('./queues/gameQueue');
+    const gameService = require('./services/gameService');
+    initializeGameWorkers(gameService);
+
+    registerNotificationGameListeners();
 
     // Initialize Firebase
     initializeFirebase();

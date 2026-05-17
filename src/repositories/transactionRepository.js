@@ -9,10 +9,10 @@ class TransactionRepository {
    * @param {Object} transactionData - Transaction data
    * @returns {Promise<Object>} Created transaction
    */
-  async create(transactionData) {
+  async create(transactionData, options = {}) {
     try {
       const transaction = new Transaction(transactionData);
-      await transaction.save();
+      await transaction.save(options);
       logger.info(`Transaction created for user: ${transactionData.userId}, Type: ${transactionData.type}`);
       return transaction.toObject();
     } catch (error) {

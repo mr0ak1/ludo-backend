@@ -1,35 +1,139 @@
 /**
  * Game Socket Events Handler
  */
+const gameEvents = require('../utils/gameEvents');
+const {
+  SOCKET_EVENTS_SERVER_TO_CLIENT: SERVER_EVENTS,
+  SOCKET_ERRORS,
+} = require('../constants/socket.constants');
+
+const getGameRoom = (gameId) => (gameId ? `game:${gameId}` : null);
+let bridgeRegistered = false;
+let bridgeIo = null;
+
+const emitRoomEvent = (io, room, eventName, payload) => {
+  if (!room) {
+    return false;
+  }
+
+  io.to(room).emit(eventName, payload);
+  return true;
+};
+
+const registerBridge = (io) => {
+  bridgeIo = io;
+
+  if (bridgeRegistered) {
+    return;
+  }
+
+  bridgeRegistered = true;
+
+  const broadcast = (eventName, payload) => {
+    const room = getGameRoom(payload && payload.gameId);
+    if (!room || !bridgeIo) {
+      return;
+    }
+
+    bridgeIo.to(room).emit(eventName, payload);
+  };
+
+  [
+    SERVER_EVENTS.GAME_JOINED,
+    SERVER_EVENTS.DICE_ROLLED,
+    SERVER_EVENTS.TOKEN_MOVED,
+    SERVER_EVENTS.TURN_CHANGED,
+    SERVER_EVENTS.GAME_ENDED,
+    SERVER_EVENTS.PLAYER_DISCONNECTED,
+    SERVER_EVENTS.PLAYER_RECONNECTED,
+    SERVER_EVENTS.GAME_STATE_SYNC,
+  ].forEach((eventName) => {
+    gameEvents.on(eventName, (payload) => broadcast(eventName, payload));
+  });
+};
+
 const gameSocket = (socket, io) => {
-  // TODO: Handle join_game event
-  socket.on('join_game', (data) => {
-    // Emit game_joined event
+  registerBridge(io);
+
+  socket.on('join_game', async (data) => {
+    const room = getGameRoom(data && data.gameId);
+
+    if (!room) {
+      socket.emit(SERVER_EVENTS.ERROR_EVENT, {
+        message: SOCKET_ERRORS.INVALID_GAME_ID,
+      });
+      return;
+    }
+
+    socket.join(room);
+
+    try {
+      const gameService = require('../services/gameService');
+      const formattedGame = await gameService.restoreGameState(data.gameId);
+      
+      socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
+        gameId: data.gameId,
+        game: formattedGame,
+        status: formattedGame.status,
+        currentTurn: formattedGame.currentTurn,
+        turnVersion: formattedGame.turnVersion,
+      });
+    } catch (err) {
+      socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
+        ...data,
+        room,
+        status: 'subscribed',
+      });
+    }
   });
 
-  // TODO: Handle roll_dice event
   socket.on('roll_dice', (data) => {
-    // Emit dice_rolled event
+    socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, data);
   });
 
-  // TODO: Handle move_token event
   socket.on('move_token', (data) => {
-    // Emit token_moved event
+    socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, data);
   });
 
-  // TODO: Handle skip_turn event
   socket.on('skip_turn', (data) => {
-    // Emit turn_changed event
+    socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, data);
   });
 
-  // TODO: Handle leave_game event
   socket.on('leave_game', (data) => {
-    // Emit player_disconnected event
+    const room = getGameRoom(data && data.gameId);
+
+    if (!room) {
+      return;
+    }
+
+    emitRoomEvent(io, room, SERVER_EVENTS.PLAYER_DISCONNECTED, data);
+    socket.leave(room);
   });
 
-  // TODO: Handle reconnect_game event
-  socket.on('reconnect_game', (data) => {
-    // Emit game_state_sync event
+  socket.on('reconnect_game', async (data) => {
+    const room = getGameRoom(data && data.gameId);
+
+    if (!room) {
+      socket.emit(SERVER_EVENTS.ERROR_EVENT, {
+        message: SOCKET_ERRORS.INVALID_GAME_ID,
+      });
+      return;
+    }
+
+    socket.join(room);
+    try {
+      const gameService = require('../services/gameService');
+      const formattedGame = await gameService.restoreGameState(data.gameId);
+      socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
+        gameId: data.gameId,
+        game: formattedGame,
+        status: formattedGame.status,
+        currentTurn: formattedGame.currentTurn,
+        turnVersion: formattedGame.turnVersion,
+      });
+    } catch (err) {
+      socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, data);
+    }
   });
 };
 

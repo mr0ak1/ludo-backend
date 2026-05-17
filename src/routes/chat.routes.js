@@ -1,16 +1,10 @@
 const express = require('express');
 const { authMiddleware } = require('../middlewares/auth.middleware');
+const chatController = require('../controllers/chatController');
 
 const router = express.Router();
 
-// TODO: POST /chat/send - Send chat message
-router.post('/send', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
-
-// TODO: GET /chat/:gameId - Get chat history
-router.get('/:gameId', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+router.get('/:gameId', authMiddleware, chatController.getChatHistory);
+router.post('/:gameId/message', authMiddleware, chatController.sendMessage);
 
 module.exports = router;

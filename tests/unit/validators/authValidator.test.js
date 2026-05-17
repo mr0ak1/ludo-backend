@@ -3,38 +3,35 @@ const mongoose = require('mongoose');
 const authValidator = require('../../../src/validators/authValidator');
 
 describe('Auth Validator Tests', () => {
-  describe('validateVerifyToken', () => {
-    it('should validate correct verify token request', () => {
+  describe('validateSendOtp', () => {
+    it('should validate correct send otp request', () => {
       const data = {
-        firebaseToken: 'valid_firebase_token_here',
         phone: '+919876543210',
       };
 
-      const { error, value } = authValidator.validateVerifyToken(data);
+      const { error, value } = authValidator.validateSendOtp(data);
 
       expect(error).toBeUndefined();
-      expect(value.firebaseToken).toBe(data.firebaseToken);
       expect(value.phone).toBe(data.phone);
     });
 
-    it('should reject missing firebaseToken', () => {
+    it('should reject missing phone', () => {
       const data = {
-        phone: '+919876543210',
+        otp: '123456',
       };
 
-      const { error } = authValidator.validateVerifyToken(data);
+      const { error } = authValidator.validateSendOtp(data);
 
       expect(error).toBeDefined();
-      expect(error.details[0].message).toContain('Firebase token');
+      expect(error.details[0].message).toContain('Phone number');
     });
 
     it('should reject invalid phone number', () => {
       const data = {
-        firebaseToken: 'token123',
         phone: 'invalid_phone',
       };
 
-      const { error } = authValidator.validateVerifyToken(data);
+      const { error } = authValidator.validateSendOtp(data);
 
       expect(error).toBeDefined();
       expect(error.details[0].message).toContain('phone number');
@@ -50,26 +47,54 @@ describe('Auth Validator Tests', () => {
 
       validPhones.forEach(phone => {
         const data = {
-          firebaseToken: 'token123',
           phone,
         };
 
-        const { error } = authValidator.validateVerifyToken(data);
+        const { error } = authValidator.validateSendOtp(data);
         expect(error).toBeUndefined();
       });
     });
+  });
 
-    it('should accept optional deviceToken', () => {
+  describe('validateVerifyOtp', () => {
+    it('should validate correct verify otp request', () => {
       const data = {
-        firebaseToken: 'token123',
         phone: '+919876543210',
-        deviceToken: 'device_token_123',
+        otp: '123456',
       };
 
-      const { error, value } = authValidator.validateVerifyToken(data);
+      const { error, value } = authValidator.validateVerifyOtp(data);
+
+      expect(error).toBeUndefined();
+      expect(value.phone).toBe(data.phone);
+      expect(value.otp).toBe(data.otp);
+    });
+
+    it('should accept optional deviceToken and sessionId', () => {
+      const data = {
+        phone: '+919876543210',
+        otp: '123456',
+        deviceToken: 'device_token_123',
+        sessionId: 'session_abc',
+      };
+
+      const { error, value } = authValidator.validateVerifyOtp(data);
 
       expect(error).toBeUndefined();
       expect(value.deviceToken).toBe('device_token_123');
+      expect(value.sessionId).toBe('session_abc');
+    });
+
+    it('should reject invalid otp format', () => {
+      const data = {
+        phone: '+919876543210',
+        otp: '12ab',
+      };
+
+      const { error } = authValidator.validateVerifyOtp(data);
+
+      expect(error).toBeDefined();
+      expect(error.details[0].message).toContain('OTP');
     });
   });
 

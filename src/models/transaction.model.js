@@ -10,6 +10,7 @@ const transactionSchema = new mongoose.Schema(
     transactionId: {
       type: String,
       unique: true,
+      default: () => 'tx_' + new mongoose.Types.ObjectId().toString(),
     },
     amount: {
       type: Number,
@@ -17,7 +18,18 @@ const transactionSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['debit', 'credit', 'reward', 'refund', 'admin_adjustment'],
+      enum: [
+        'debit',
+        'credit',
+        'reward',
+        'refund',
+        'admin_adjustment',
+        'sign_up_bonus',
+        'admin_add',
+        'admin_deduct',
+        'game_entry',
+        'game_reward',
+      ],
       required: true,
     },
     reason: {
@@ -39,6 +51,14 @@ const transactionSchema = new mongoose.Schema(
       default: 0,
     },
     newBalance: {
+      type: Number,
+      default: 0,
+    },
+    beforeBalance: {
+      type: Number,
+      default: 0,
+    },
+    afterBalance: {
       type: Number,
       default: 0,
     },

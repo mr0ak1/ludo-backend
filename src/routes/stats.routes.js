@@ -1,26 +1,31 @@
 const express = require('express');
 const { authMiddleware } = require('../middlewares/auth.middleware');
+const statsController = require('../controllers/statsController');
 
 const router = express.Router();
 
-// TODO: GET /stats - Get player stats
-router.get('/', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route GET /api/v1/stats/me
+ * @desc Personal stats (Cluster 9)
+ */
+router.get('/me', authMiddleware, statsController.getMyStats);
 
-// TODO: GET /stats/match-history - Get match history
-router.get('/match-history', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route GET /api/v1/stats/leaderboard
+ * @desc Top 100 ranked players (cached ~1h)
+ */
+router.get('/leaderboard', statsController.getLeaderboard);
 
-// TODO: GET /stats/win-rate - Get win rate
-router.get('/win-rate', authMiddleware, (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route GET /api/v1/stats/history
+ * @desc Paginated match history for current user
+ */
+router.get('/history', authMiddleware, statsController.getMatchHistory);
 
-// TODO: GET /stats/leaderboard - Get leaderboard
-router.get('/leaderboard', (req, res) => {
-  res.status(501).json({ message: 'Not implemented' });
-});
+/**
+ * @route GET /api/v1/stats/player/:userId
+ * @desc Public profile stats for another player
+ */
+router.get('/player/:userId', statsController.getPlayerStats);
 
 module.exports = router;

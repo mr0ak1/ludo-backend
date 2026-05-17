@@ -9,10 +9,10 @@ class WalletRepository {
    * @param {Object} walletData - Wallet data
    * @returns {Promise<Object>} Created wallet
    */
-  async create(walletData) {
+  async create(walletData, options = {}) {
     try {
       const wallet = new Wallet(walletData);
-      await wallet.save();
+      await wallet.save(options);
       logger.info(`Wallet created for user: ${walletData.userId}`);
       return wallet.toObject();
     } catch (error) {
@@ -26,9 +26,9 @@ class WalletRepository {
    * @param {String} userId - User ID
    * @returns {Promise<Object|null>} Wallet object or null
    */
-  async findByUserId(userId) {
+  async findByUserId(userId, options = {}) {
     try {
-      const wallet = await Wallet.findOne({ userId }).select('-__v');
+      const wallet = await Wallet.findOne({ userId }, null, options).select('-__v');
       return wallet ? wallet.toObject() : null;
     } catch (error) {
       logger.error('Error finding wallet by user ID:', error);
@@ -41,9 +41,9 @@ class WalletRepository {
    * @param {String} walletId - Wallet ID
    * @returns {Promise<Object|null>} Wallet object or null
    */
-  async findById(walletId) {
+  async findById(walletId, options = {}) {
     try {
-      const wallet = await Wallet.findById(walletId).select('-__v');
+      const wallet = await Wallet.findById(walletId, null, options).select('-__v');
       return wallet ? wallet.toObject() : null;
     } catch (error) {
       logger.error('Error finding wallet by ID:', error);
@@ -58,13 +58,13 @@ class WalletRepository {
    * @param {String} reason - Reason for transaction
    * @returns {Promise<Object>} Updated wallet
    */
-  async updateCoins(userId, amount, reason = 'Manual update') {
+  async updateCoins(userId, amount, reason = 'Manual update', options = {}) {
     try {
       if (!Number.isInteger(amount) || amount === 0) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid coin amount');
       }
 
-      const wallet = await Wallet.findOne({ userId });
+      const wallet = await Wallet.findOne({ userId }, null, options);
       if (!wallet) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
       }
@@ -83,7 +83,7 @@ class WalletRepository {
       wallet.coins = Math.max(0, wallet.coins + amount); // Prevent negative balance
       wallet.updatedAt = new Date();
 
-      await wallet.save();
+      await wallet.save(options);
 
       logger.info(`Wallet updated for user ${userId}: ${previousBalance} → ${wallet.coins} (${reason})`);
 
@@ -101,7 +101,7 @@ class WalletRepository {
    * @param {String} reason - Lock reason
    * @returns {Promise<Object>} Updated wallet
    */
-  async lockWallet(userId, reason) {
+  async lockWallet(userId, reason, options = {}) {
     try {
       const wallet = await Wallet.findOneAndUpdate(
         { userId },
@@ -111,7 +111,7 @@ class WalletRepository {
           lockedAt: new Date(),
           updatedAt: new Date(),
         },
-        { new: true }
+        { new: true, ...options }
       ).select('-__v');
 
       if (!wallet) {
@@ -132,7 +132,7 @@ class WalletRepository {
    * @param {String} userId - User ID
    * @returns {Promise<Object>} Updated wallet
    */
-  async unlockWallet(userId) {
+  async unlockWallet(userId, options = {}) {
     try {
       const wallet = await Wallet.findOneAndUpdate(
         { userId },
@@ -142,7 +142,7 @@ class WalletRepository {
           lockedAt: null,
           updatedAt: new Date(),
         },
-        { new: true }
+        { new: true, ...options }
       ).select('-__v');
 
       if (!wallet) {
@@ -163,9 +163,9 @@ class WalletRepository {
    * @param {String} userId - User ID
    * @returns {Promise<Number>} Coin balance
    */
-  async getBalance(userId) {
+  async getBalance(userId, options = {}) {
     try {
-      const wallet = await Wallet.findOne({ userId }).select('coins');
+      const wallet = await Wallet.findOne({ userId }, 'coins', options);
       return wallet ? wallet.coins : 0;
     } catch (error) {
       logger.error('Error getting balance:', error);
@@ -180,13 +180,13 @@ class WalletRepository {
    * @param {String} reason - Reason for deduction
    * @returns {Promise<Object>} Updated wallet
    */
-  async deductCoins(userId, amount, reason = 'Game entry fee') {
+  async deductCoins(userId, amount, reason = 'Game entry fee', options = {}) {
     try {
       if (amount < 0) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Deduction amount must be positive');
       }
 
-      return await this.updateCoins(userId, -amount, reason);
+      return await this.updateCoins(userId, -amount, reason, options);
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error deducting coins:', error);
@@ -201,13 +201,13 @@ class WalletRepository {
    * @param {String} reason - Reason for addition
    * @returns {Promise<Object>} Updated wallet
    */
-  async addCoins(userId, amount, reason = 'Game reward') {
+  async addCoins(userId, amount, reason = 'Game reward', options = {}) {
     try {
       if (amount < 0) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Addition amount must be positive');
       }
 
-      return await this.updateCoins(userId, amount, reason);
+      return await this.updateCoins(userId, amount, reason, options);
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error adding coins:', error);

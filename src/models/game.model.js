@@ -6,11 +6,17 @@ const gameSchema = new mongoose.Schema(
       type: String,
       required: true,
       unique: true,
+      default: () => require('crypto').randomBytes(8).toString('hex'),
     },
     type: {
       type: String,
       enum: ['practice', 'cash', 'tournament'],
       required: true,
+      default: 'practice',
+    },
+    gameType: {
+      type: String,
+      enum: ['practice', 'cash', 'tournament'],
     },
     status: {
       type: String,
@@ -19,7 +25,11 @@ const gameSchema = new mongoose.Schema(
     },
     players: [
       {
-        playerId: mongoose.Schema.Types.ObjectId,
+        userId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User',
+          required: true,
+        },
         playerName: String,
         playerColor: String,
         tokens: [
@@ -30,13 +40,17 @@ const gameSchema = new mongoose.Schema(
             completed: Boolean,
           },
         ],
+        isHome: {
+          type: [Boolean],
+          default: [false, false, false, false],
+        },
         isBot: {
           type: Boolean,
           default: false,
         },
         botDifficulty: {
           type: String,
-          enum: ['easy', 'medium', 'hard'],
+          enum: ['easy', 'medium', 'hard', null],
           default: null,
         },
         joinedAt: Date,
@@ -51,8 +65,12 @@ const gameSchema = new mongoose.Schema(
       },
     ],
     currentTurn: {
-      type: mongoose.Schema.Types.ObjectId,
-      default: null,
+      type: Number,
+      default: 0,
+    },
+    turnStartedAt: {
+      type: Date,
+      default: Date.now,
     },
     currentTurnCount: {
       type: Number,
@@ -82,9 +100,9 @@ const gameSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.Mixed,
       default: {},
     },
-    moveHistory: [
+    moves: [
       {
-        playerId: mongoose.Schema.Types.ObjectId,
+        userId: mongoose.Schema.Types.ObjectId,
         diceValue: Number,
         tokenId: String,
         fromPosition: Number,
@@ -111,6 +129,10 @@ const gameSchema = new mongoose.Schema(
       type: Number,
       default: 0, // in milliseconds
     },
+    isBotProcessing: {
+      type: Boolean,
+      default: false,
+    },
     createdAt: {
       type: Date,
       default: Date.now,
@@ -126,9 +148,16 @@ const gameSchema = new mongoose.Schema(
   }
 );
 
+gameSchema.pre('validate', function (next) {
+  if (this.gameType && !this.type) {
+    this.type = this.gameType;
+  }
+  next();
+});
+
 // Indexes
 gameSchema.index({ gameId: 1 });
-gameSchema.index({ 'players.playerId': 1 });
+gameSchema.index({ 'players.userId': 1 });
 gameSchema.index({ status: 1 });
 gameSchema.index({ createdAt: -1 });
 gameSchema.index({ winner: 1 });

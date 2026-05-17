@@ -10,7 +10,16 @@ const notificationSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: [
+        // Roadmap 8.2
         'match_found',
+        'game_started',
+        'your_turn',
+        'game_ended',
+        'wallet_update',
+        'achievement',
+        'bonus',
+        'system_alert',
+        // Legacy / extended
         'opponent_joined',
         'wallet_credited',
         'daily_reward',
