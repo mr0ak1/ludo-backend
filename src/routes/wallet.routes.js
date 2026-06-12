@@ -27,6 +27,13 @@ router.get('/history', authMiddleware, walletController.getTransactionHistory);
 router.get('/stats', authMiddleware, walletController.getWalletStats);
 
 /**
+ * @route POST /api/v1/wallet/request-withdrawal
+ * @desc Request a withdrawal
+ * @access Private
+ */
+router.post('/request-withdrawal', authMiddleware, walletController.requestWithdrawal);
+
+/**
  * @route POST /api/v1/wallet/add
  * @desc Add coins to user wallet (admin only)
  * @access Private (Admin)

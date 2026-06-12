@@ -68,7 +68,8 @@ const verifyToken = (token, isRefreshToken = false) => {
     });
     return decoded;
   } catch (error) {
-    throw new Error(`Token verification failed: ${error.message}`);
+    error.message = `Token verification failed: ${error.message}`;
+    throw error;
   }
 };
 

@@ -37,7 +37,7 @@ describe('BotController', () => {
 
       await botController.createBotGame(req, res, next);
 
-      expect(gameService.createCashGame).toHaveBeenCalledWith('user123', 100, 2, 'medium');
+      expect(gameService.createCashGame).toHaveBeenCalledWith('user123', 100, 2, 'medium', undefined);
       expect(res.status).toHaveBeenCalledWith(HTTP_STATUS.CREATED);
       expect(res.json).toHaveBeenCalled();
       expect(next).not.toHaveBeenCalled();
@@ -96,7 +96,7 @@ describe('BotController', () => {
 
         await botController.createBotGame(req, res, next);
 
-        expect(gameService.createCashGame).toHaveBeenCalledWith('user123', 0, 2, difficulty);
+        expect(gameService.createCashGame).toHaveBeenCalledWith('user123', 0, 2, difficulty, undefined);
       }
     });
   });

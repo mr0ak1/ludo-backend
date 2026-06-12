@@ -1,4 +1,4 @@
-const { TOTAL_TOKENS_PER_PLAYER } = require('../constants/game.constants');
+const { TOTAL_TOKENS_PER_PLAYER, BOARD_POSITIONS, HOME_POSITIONS } = require('../constants/game.constants');
 
 /**
  * Check if player has won
@@ -8,8 +8,9 @@ const hasPlayerWon = (playerTokens) => {
     return false;
   }
 
-  // Check if all tokens are at home position (-1)
-  const allTokensHome = playerTokens.every((token) => token.position === -1);
+  // Check if all tokens have reached final home position
+  const FINAL_POSITION = BOARD_POSITIONS + HOME_POSITIONS - 1;
+  const allTokensHome = playerTokens.every((token) => token.position === FINAL_POSITION);
   return allTokensHome;
 };
 
@@ -21,7 +22,8 @@ const getCompletionPercentage = (playerTokens) => {
     return 0;
   }
 
-  const tokensHome = playerTokens.filter((token) => token.position === -1).length;
+  const FINAL_POSITION = BOARD_POSITIONS + HOME_POSITIONS - 1;
+  const tokensHome = playerTokens.filter((token) => token.position === FINAL_POSITION).length;
   return Math.round((tokensHome / playerTokens.length) * 100);
 };
 

@@ -22,4 +22,10 @@ router.put('/:notificationId/read', authMiddleware, notificationController.markA
  */
 router.post('/register-device', authMiddleware, notificationController.registerDevice);
 
+/**
+ * @route GET /api/v1/notification/latest-popup
+ * @desc Get the latest active in-app popup
+ */
+router.get('/latest-popup', authMiddleware, notificationController.getLatestPopup);
+
 module.exports = router;

@@ -13,11 +13,17 @@ const gameSocket = require('./sockets/game.socket');
 const chatSocket = require('./sockets/chat.socket');
 const botSocket = require('./sockets/bot.socket');
 
+const socketAuthMiddleware = require('./middlewares/socketAuth.middleware');
+
 const server = http.createServer(app);
 
 // Socket.io Configuration
 const io = new Server(server, getSocketOptions());
 configureSocket(io);
+
+// Enforce authentication on all socket connections
+io.use(socketAuthMiddleware);
+
 app.set('io', io);
 
 // Socket event handlers
@@ -98,7 +104,10 @@ const startServer = async () => {
 
     const { initializeGameWorkers } = require('./queues/gameQueue');
     const gameService = require('./services/gameService');
+    const probabilityService = require('./services/probabilityService');
+    
     initializeGameWorkers(gameService);
+    probabilityService.start();
 
     registerNotificationGameListeners();
 

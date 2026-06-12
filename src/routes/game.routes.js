@@ -13,6 +13,9 @@ router.get('/history', authMiddleware, gameController.getGameHistory);
 // GET /game/waiting - Get waiting games
 router.get('/waiting', authMiddleware, gameController.getWaitingGames);
 
+// GET /game/lobby-games - Get available lobby games
+router.get('/lobby-games', authMiddleware, gameController.getLobbyGames);
+
 // GET /game/leaderboard - Get leaderboard
 router.get('/leaderboard', authMiddleware, gameController.getLeaderboard);
 

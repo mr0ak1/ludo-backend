@@ -64,30 +64,59 @@ class WalletRepository {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid coin amount');
       }
 
-      const wallet = await Wallet.findOne({ userId }, null, options);
-      if (!wallet) {
+      // Pre-check for locked status and balance for better error diagnostics
+      const existingWallet = await Wallet.findOne({ userId }, 'isLocked lockedReason coins', options);
+      if (!existingWallet) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
       }
 
-      // Check if wallet is locked
-      if (wallet.isLocked) {
-        throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
+      if (existingWallet.isLocked) {
+        throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${existingWallet.lockedReason}`);
       }
 
-      // Check for insufficient balance on deduction
-      if (amount < 0 && wallet.coins + amount < 0) {
+      if (amount < 0 && existingWallet.coins + amount < 0) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Insufficient coins');
       }
 
-      const previousBalance = wallet.coins;
-      wallet.coins = Math.max(0, wallet.coins + amount); // Prevent negative balance
-      wallet.updatedAt = new Date();
+      // Build atomic query
+      const query = {
+        userId,
+        isLocked: false,
+      };
 
-      await wallet.save(options);
+      if (amount < 0) {
+        query.coins = { $gte: Math.abs(amount) }; // Enforce balance check atomically
+      }
 
-      logger.info(`Wallet updated for user ${userId}: ${previousBalance} → ${wallet.coins} (${reason})`);
+      const update = {
+        $inc: { coins: amount },
+        $set: { updatedAt: new Date() },
+      };
 
-      return wallet.toObject();
+      const updatedWallet = await Wallet.findOneAndUpdate(query, update, {
+        new: true,
+        runValidators: true,
+        ...options,
+      }).select('-__v');
+
+      if (!updatedWallet) {
+        // If the update failed, find out why to raise the precise error
+        const doubleCheck = await Wallet.findOne({ userId }, 'isLocked coins', options);
+        if (!doubleCheck) {
+          throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
+        }
+        if (doubleCheck.isLocked) {
+          throw new ApiError(HTTP_STATUS.CONFLICT, 'Wallet was concurrently locked');
+        }
+        if (amount < 0 && doubleCheck.coins < Math.abs(amount)) {
+          throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Insufficient coins');
+        }
+        throw new ApiError(HTTP_STATUS.CONFLICT, 'Concurrent wallet update conflict. Please try again.');
+      }
+
+      logger.info(`Wallet updated atomically for user ${userId}: ${existingWallet.coins} → ${updatedWallet.coins} (${reason})`);
+
+      return updatedWallet.toObject();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error updating coins:', error);
@@ -266,6 +295,22 @@ class WalletRepository {
     } catch (error) {
       logger.error('Error finding wallets:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get total sum of all user balances in the system
+   * @returns {Promise<Number>} Total balance
+   */
+  async getTotalSystemBalance() {
+    try {
+      const result = await Wallet.aggregate([
+        { $group: { _id: null, totalBalance: { $sum: '$coins' } } }
+      ]);
+      return result.length > 0 ? result[0].totalBalance : 0;
+    } catch (error) {
+      logger.error('Error getting total system balance:', error);
+      return 0;
     }
   }
 }

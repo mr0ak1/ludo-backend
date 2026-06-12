@@ -13,7 +13,7 @@ const createNoopQueue = () => ({
 let connection = null;
 let gameQueue = createNoopQueue();
 
-if (!config.isDevelopment) {
+if (!config.isDevelopment && !config.isTest) {
   // Redis connection for BullMQ
   connection = new IORedis(config.redisUrl, {
     maxRetriesPerRequest: null,
@@ -38,8 +38,8 @@ if (!config.isDevelopment) {
  * @param {Object} gameService - Injected gameService to avoid circular dependency
  */
 const initializeGameWorkers = (gameService) => {
-  if (config.isDevelopment) {
-    logger.warn('Game action workers skipped in development because Redis queueing is disabled.');
+  if (config.isDevelopment || config.isTest) {
+    logger.warn('Game action workers skipped because Redis queueing is disabled.');
     return null;
   }
 

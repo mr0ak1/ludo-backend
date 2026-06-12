@@ -4,6 +4,7 @@ const ApiResponse = require('../utils/ApiResponse');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
 const logger = require('../utils/logger');
+const matchmakingService = require('../services/matchmakingService');
 
 /**
  * Create practice game
@@ -19,7 +20,7 @@ const createPracticeGame = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    const game = await gameService.createPracticeGame(userId, value.maxPlayers);
+    const game = await gameService.createPracticeGame(userId, value.maxPlayers, value.preferredColor);
 
     res.status(HTTP_STATUS.CREATED).json(
       new ApiResponse(HTTP_STATUS.CREATED, 'Practice game created successfully', game)
@@ -43,7 +44,20 @@ const createCashGame = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    const game = await gameService.createCashGame(userId, value.entryFee, value.maxPlayers);
+    let globalDifficulty = matchmakingService.getGlobalBotDifficulty();
+    
+    // Auto hard mode logic based on threshold
+    const threshold = matchmakingService.getHardModeThreshold();
+    const entryFee = value.entryFee || 0;
+    
+    console.log('[DEBUG] gameController createCashGame', { globalDifficulty, threshold, entryFee });
+    
+    if (threshold !== null && entryFee >= threshold) {
+      globalDifficulty = 'hard';
+      console.log('[DEBUG] Overridden to hard by threshold');
+    }
+
+    const game = await gameService.createCashGame(userId, entryFee, value.maxPlayers, globalDifficulty, value.preferredColor);
 
     res.status(HTTP_STATUS.CREATED).json(
       new ApiResponse(HTTP_STATUS.CREATED, 'Cash game created successfully', game)
@@ -346,6 +360,24 @@ const getWaitingGames = async (req, res, next) => {
 };
 
 /**
+ * Get lobby games
+ * GET /api/v1/game/lobby-games
+ */
+const getLobbyGames = async (req, res, next) => {
+  try {
+    const LobbyGame = require('../models/lobbyGame.model');
+    // Only return active games
+    const games = await LobbyGame.find({ isActive: true }).sort({ entryFee: 1 }).lean();
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved successfully', games)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Get leaderboard
  * GET /api/v1/game/leaderboard
  */
@@ -379,4 +411,5 @@ module.exports = {
   getGameHistory,
   getWaitingGames,
   getLeaderboard,
+  getLobbyGames,
 };

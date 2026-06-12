@@ -1,13 +1,17 @@
 const gameEvents = require('../../../src/utils/gameEvents');
 const gameSocket = require('../../../src/sockets/game.socket');
 
+jest.mock('../../../src/services/gameService', () => ({
+  restoreGameState: jest.fn().mockRejectedValue(new Error('Test mock error')),
+}));
+
 describe('game.socket', () => {
   beforeEach(() => {
     gameEvents.removeAllListeners();
     jest.clearAllMocks();
   });
 
-  it('registers gameplay handlers and broadcasts service events to the room', () => {
+  it('registers gameplay handlers and broadcasts service events to the room', async () => {
     const handlers = {};
     const room = { emit: jest.fn() };
     const io = {
@@ -24,7 +28,7 @@ describe('game.socket', () => {
 
     gameSocket(socket, io);
 
-    handlers.join_game({ gameId: 'game123', userId: 'user123' });
+    await handlers.join_game({ gameId: 'game123', userId: 'user123' });
     expect(socket.join).toHaveBeenCalledWith('game:game123');
     expect(socket.emit).toHaveBeenCalledWith('game_state_sync', {
       gameId: 'game123',
@@ -79,7 +83,7 @@ describe('game.socket', () => {
     room.emit.mockClear();
     io.to.mockClear();
 
-    handlers.reconnect_game({ gameId: 'game123' });
+    await handlers.reconnect_game({ gameId: 'game123' });
     expect(socket.join).toHaveBeenCalledWith('game:game123');
     expect(socket.emit).toHaveBeenCalledWith('game_state_sync', { gameId: 'game123' });
   });

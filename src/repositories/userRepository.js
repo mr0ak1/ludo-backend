@@ -148,7 +148,7 @@ class UserRepository {
       const { page = 1, limit = 10 } = pagination;
       const skip = (page - 1) * limit;
 
-      const query = {};
+      const query = { isBot: false };
       if (filters.isBanned !== undefined) query.isBanned = filters.isBanned;
       if (filters.isSuspended !== undefined) query.isSuspended = filters.isSuspended;
       if (filters.search) {
@@ -159,20 +159,74 @@ class UserRepository {
         ];
       }
 
-      const users = await User.find(query)
-        .select('-__v')
-        .limit(limit)
-        .skip(skip)
-        .sort({ createdAt: -1 });
+      let sortOptions = { createdAt: -1 };
+      
+      if (filters.sortBy) {
+        switch (filters.sortBy) {
+          case 'registration_desc':
+            sortOptions = { createdAt: -1 };
+            break;
+          case 'registration_asc':
+            sortOptions = { createdAt: 1 };
+            break;
+        }
+      }
 
-      const total = await User.countDocuments(query);
+      if (filters.sortBy === 'wallet_desc' || filters.sortBy === 'wallet_asc') {
+        const sortDirection = filters.sortBy === 'wallet_desc' ? -1 : 1;
+        
+        const pipeline = [
+          { $match: query },
+          {
+            $lookup: {
+              from: 'wallets',
+              localField: '_id',
+              foreignField: 'userId',
+              as: 'wallet'
+            }
+          },
+          {
+            $addFields: {
+              actualCoins: {
+                $cond: {
+                  if: { $gt: [{ $size: "$wallet" }, 0] },
+                  then: { $arrayElemAt: ["$wallet.coins", 0] },
+                  else: "$coins"
+                }
+              }
+            }
+          },
+          { $sort: { actualCoins: sortDirection } },
+          { $skip: skip },
+          { $limit: limit },
+          { $project: { wallet: 0, actualCoins: 0, __v: 0 } }
+        ];
+        
+        const users = await User.aggregate(pipeline);
+        const total = await User.countDocuments(query);
+        
+        return {
+          users,
+          total,
+          page,
+          pages: Math.ceil(total / limit),
+        };
+      } else {
+        const users = await User.find(query)
+          .select('-__v')
+          .limit(limit)
+          .skip(skip)
+          .sort(sortOptions);
 
-      return {
-        users: users.map(u => u.toObject()),
-        total,
-        page,
-        pages: Math.ceil(total / limit),
-      };
+        const total = await User.countDocuments(query);
+
+        return {
+          users: users.map(u => u.toObject ? u.toObject() : u),
+          total,
+          page,
+          pages: Math.ceil(total / limit),
+        };
+      }
     } catch (error) {
       logger.error('Error finding users:', error);
       throw error;
@@ -475,6 +529,62 @@ class UserRepository {
     } catch (error) {
       logger.error('Error updating game stats:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Count total users
+   * @returns {Promise<Number>} Total user count
+   */
+  async countAllUsers() {
+    try {
+      return await User.countDocuments({ isBot: false });
+    } catch (error) {
+      logger.error('Error counting users:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Count banned users
+   * @returns {Promise<Number>} Banned user count
+   */
+  async countBannedUsers() {
+    try {
+      return await User.countDocuments({ isBanned: true, isBot: false });
+    } catch (error) {
+      logger.error('Error counting banned users:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Count suspended users
+   * @returns {Promise<Number>} Suspended user count
+   */
+  async countSuspendedUsers() {
+    try {
+      return await User.countDocuments({ isSuspended: true, isBot: false });
+    } catch (error) {
+      logger.error('Error counting suspended users:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Count daily active users (last 24 hours)
+   * @returns {Promise<Number>} Daily active user count
+   */
+  async countDailyActiveUsers() {
+    try {
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      return await User.countDocuments({
+        lastActive: { $gte: oneDayAgo },
+        isBot: false,
+      });
+    } catch (error) {
+      logger.error('Error counting daily active users:', error);
+      return 0;
     }
   }
 }

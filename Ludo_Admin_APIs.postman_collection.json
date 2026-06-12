@@ -1,0 +1,468 @@
+{
+  "info": {
+    "_postman_id": "admin-apis-collection",
+    "name": "Ludo Admin APIs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Admin Login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    pm.environment.set('adminToken', pm.response.json().data.token);",
+              "    console.log('Admin token saved to environment');",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"phone\": \"+919999999999\",\n  \"otp\": \"1234\",\n  \"sessionId\": \"session_id_here\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "login"]
+        }
+      }
+    },
+    {
+      "name": "Get Dashboard",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/dashboard",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "dashboard"]
+        }
+      }
+    },
+    {
+      "name": "Get All Users",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const users = pm.response.json().data.users;",
+              "    if (users.length > 0) {",
+              "        pm.environment.set('testUserId', users[0]._id);",
+              "        console.log('Test user ID saved: ' + users[0]._id);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/users?page=1&limit=10&search=&isBanned=false",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "users"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "search",
+              "value": ""
+            },
+            {
+              "key": "isBanned",
+              "value": "false"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Single User",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/user/{{testUserId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "user", "{{testUserId}}"]
+        }
+      }
+    },
+    {
+      "name": "Ban User",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{testUserId}}\",\n  \"reason\": \"Cheating detected\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/ban-user",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "ban-user"]
+        }
+      }
+    },
+    {
+      "name": "Suspend User",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{testUserId}}\",\n  \"reason\": \"Temporary suspension\",\n  \"duration\": \"24h\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/suspend-user",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "suspend-user"]
+        }
+      }
+    },
+    {
+      "name": "Get All Games",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const games = pm.response.json().data.games;",
+              "    if (games.length > 0) {",
+              "        pm.environment.set('testGameId', games[0]._id);",
+              "        console.log('Test game ID saved: ' + games[0]._id);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/games?page=1&limit=10&status=&gameType=",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "games"],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "limit",
+              "value": "10"
+            },
+            {
+              "key": "status",
+              "value": ""
+            },
+            {
+              "key": "gameType",
+              "value": ""
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Live Games",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/live-games?limit=50",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "live-games"],
+          "query": [
+            {
+              "key": "limit",
+              "value": "50"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Force End Game",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"gameId\": \"{{testGameId}}\",\n  \"reason\": \"Server error detected\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/force-end-game",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "force-end-game"]
+        }
+      }
+    },
+    {
+      "name": "Adjust Wallet - Add Coins",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{testUserId}}\",\n  \"amount\": 500,\n  \"type\": \"add\",\n  \"reason\": \"Compensation for server issue\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/wallet-adjustment",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "wallet-adjustment"]
+        }
+      }
+    },
+    {
+      "name": "Adjust Wallet - Deduct Coins",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"userId\": \"{{testUserId}}\",\n  \"amount\": 100,\n  \"type\": \"deduct\",\n  \"reason\": \"Penalty for violation\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/wallet-adjustment",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "wallet-adjustment"]
+        }
+      }
+    },
+    {
+      "name": "Set Bot Difficulty - Easy",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"difficulty\": \"easy\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/set-difficulty",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "set-difficulty"]
+        }
+      }
+    },
+    {
+      "name": "Set Bot Difficulty - Medium",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"difficulty\": \"medium\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/set-difficulty",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "set-difficulty"]
+        }
+      }
+    },
+    {
+      "name": "Set Bot Difficulty - Hard",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"difficulty\": \"hard\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/admin/set-difficulty",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "set-difficulty"]
+        }
+      }
+    },
+    {
+      "name": "Get Current Bot Difficulty",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/get-difficulty",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "get-difficulty"]
+        }
+      }
+    },
+    {
+      "name": "Get Revenue Analytics",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{adminToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/admin/revenue?days=7&groupBy=day",
+          "host": ["{{baseUrl}}"],
+          "path": ["admin", "revenue"],
+          "query": [
+            {
+              "key": "days",
+              "value": "7"
+            },
+            {
+              "key": "groupBy",
+              "value": "day"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "testUserId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "testGameId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

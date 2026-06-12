@@ -1,6 +1,7 @@
 const express = require('express');
 const authController = require('../controllers/authController');
 const { authMiddleware } = require('../middlewares/auth.middleware');
+const { authLimiter } = require('../middlewares/rateLimiter.middleware');
 
 const router = express.Router();
 
@@ -9,21 +10,21 @@ const router = express.Router();
  * @desc Send OTP to user's phone
  * @access Public
  */
-router.post('/send-otp', authController.sendOtp);
+router.post('/send-otp', authLimiter, authController.sendOtp);
 
 /**
  * @route POST /api/v1/auth/verify-otp
  * @desc Verify OTP and login/register user
  * @access Public
  */
-router.post('/verify-otp', authController.verifyOtp);
+router.post('/verify-otp', authLimiter, authController.verifyOtp);
 
 /**
  * @route POST /api/v1/auth/verify
  * @desc Backward-compatible alias for OTP verification
  * @access Public
  */
-router.post('/verify', authController.verifyOtp);
+router.post('/verify', authLimiter, authController.verifyOtp);
 
 /**
  * @route POST /api/v1/auth/refresh-token

@@ -5,6 +5,7 @@ const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
 const { BOT_DIFFICULTY, BOT_LEVELS } = require('../constants/bot.constants');
 const logger = require('../utils/logger');
+const matchmakingService = require('../services/matchmakingService');
 
 /**
  * Create bot game (1v1 with AI opponent)
@@ -20,10 +21,41 @@ const createBotGame = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    const { difficulty, entryFee } = value;
+    let { difficulty, entryFee, preferredColor } = value;
+
+    // Override with global difficulty only when not provided by request
+    const globalDiff = matchmakingService.getGlobalBotDifficulty();
+    if (!difficulty && globalDiff) {
+      difficulty = globalDiff;
+    }
+
+    // Priority 2: Check if it's the user's first match
+    let isFirstMatch = false;
+    try {
+      const userRepository = require('../repositories/userRepository');
+      const user = await userRepository.findById(userId);
+      if (user && (user.totalGames || 0) === 0) {
+        isFirstMatch = true;
+      }
+    } catch (err) {
+      logger.error('Error checking user totalGames for botController:', err);
+    }
+
+    if (isFirstMatch) {
+      difficulty = 'easy';
+      logger.info(`Bot difficulty set to easy for first match of user ${userId}`);
+    }
+
+    // Priority 1 (Highest): Auto hard mode logic based on threshold
+    const threshold = matchmakingService.getHardModeThreshold();
+    const actualEntryFee = entryFee || 0;
+    if (threshold !== null && actualEntryFee >= threshold) {
+      difficulty = 'hard';
+      logger.info(`Bot difficulty automatically set to hard in botController due to bet amount (${actualEntryFee} >= ${threshold})`);
+    }
 
     // Create cash game with bot (2 players: 1 real + 1 bot)
-    const game = await gameService.createCashGame(userId, entryFee || 0, 2, difficulty);
+    const game = await gameService.createCashGame(userId, actualEntryFee, 2, difficulty, preferredColor);
 
     logger.info(`Bot game created for user ${userId} with difficulty ${difficulty}`);
 

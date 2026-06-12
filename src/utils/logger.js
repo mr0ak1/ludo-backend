@@ -11,12 +11,8 @@ const logger = winston.createLogger({
   ),
   defaultMeta: { service: 'ludo-game-backend' },
   transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple(),
-      ),
-    }),
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
     new winston.transports.File({
       filename: 'src/logs/error.log',
       level: 'error',
@@ -26,6 +22,12 @@ const logger = winston.createLogger({
     }),
   ],
 });
+
+// Disable console logs completely
+console.log = function() {};
+console.info = function() {};
+console.warn = function() {};
+console.error = function() {};
 
 // Log levels: error, warn, info, http, debug
 const log = {

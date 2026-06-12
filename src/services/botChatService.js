@@ -4,6 +4,7 @@
  */
 
 const { CHAT_MESSAGES, CHAT_TYPE } = require('../constants/chat.constants');
+const { GAME_STATUS } = require('../constants/game.constants');
 const gameEvents = require('../utils/gameEvents');
 const logger = require('../utils/logger');
 
@@ -31,7 +32,7 @@ class BotChatService {
       
       setTimeout(() => {
         // Only send if game is still ongoing
-        if (game.status !== 'ongoing' && game.status !== 'active') {
+        if (game.status !== GAME_STATUS.ACTIVE) {
           return;
         }
 

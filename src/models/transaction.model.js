@@ -29,6 +29,8 @@ const transactionSchema = new mongoose.Schema(
         'admin_deduct',
         'game_entry',
         'game_reward',
+        'deposit',
+        'withdrawal',
       ],
       required: true,
     },

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { GAME_STATUS, GAME_TYPE } = require('../constants/game.constants');
 
 const gameSchema = new mongoose.Schema(
   {
@@ -10,17 +11,17 @@ const gameSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['practice', 'cash', 'tournament'],
+      enum: Object.values(GAME_TYPE),
       required: true,
       default: 'practice',
     },
     gameType: {
       type: String,
-      enum: ['practice', 'cash', 'tournament'],
+      enum: Object.values(GAME_TYPE),
     },
     status: {
       type: String,
-      enum: ['pending', 'active', 'paused', 'completed', 'cancelled', 'reconnecting'],
+      enum: Object.values(GAME_STATUS),
       default: 'pending',
     },
     players: [
@@ -32,6 +33,12 @@ const gameSchema = new mongoose.Schema(
         },
         playerName: String,
         playerColor: String,
+        preferredColor: {
+          type: String,
+          enum: ['red', 'green', 'yellow', 'blue'],
+          default: 'red',
+        },
+        position: Number,
         tokens: [
           {
             tokenId: String,
@@ -62,6 +69,10 @@ const gameSchema = new mongoose.Schema(
           type: Boolean,
           default: true,
         },
+        consecutiveSixes: {
+          type: Number,
+          default: 0,
+        },
       },
     ],
     currentTurn: {
@@ -73,10 +84,6 @@ const gameSchema = new mongoose.Schema(
       default: Date.now,
     },
     currentTurnCount: {
-      type: Number,
-      default: 0,
-    },
-    consecutiveSixes: {
       type: Number,
       default: 0,
     },
@@ -149,7 +156,11 @@ const gameSchema = new mongoose.Schema(
 );
 
 gameSchema.pre('validate', function (next) {
-  if (this.gameType && !this.type) {
+  if (this.type && !this.gameType) {
+    this.gameType = this.type;
+  }
+
+  if (this.gameType) {
     this.type = this.gameType;
   }
   next();

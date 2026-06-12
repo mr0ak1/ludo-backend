@@ -10,24 +10,19 @@ describe('BotService', () => {
   });
 
   it('should detect bot players by user record', async () => {
-    userRepository.findById = jest.fn().mockResolvedValue({ _id: 'bot1', isBot: true });
-
     const game = {
       players: [
-        { userId: 'bot1' },
+        { userId: 'bot1', isBot: true },
       ],
     };
 
     await expect(botService.isPlayerBot(game, 0)).resolves.toBe(true);
-    expect(userRepository.findById).toHaveBeenCalledWith('bot1');
   });
 
   it('should fallback to easy level when bot level is missing', async () => {
-    userRepository.findById = jest.fn().mockResolvedValue({ _id: 'bot1', isBot: true });
-
     const game = {
       players: [
-        { userId: 'bot1' },
+        { userId: 'bot1', isBot: true },
       ],
     };
 
@@ -51,7 +46,8 @@ describe('BotService', () => {
 
   it('should return an easy move from valid moves', async () => {
     userRepository.findById = jest.fn().mockResolvedValue({ _id: 'bot1', isBot: true, botLevel: 'easy' });
-    const randomSpy = jest.spyOn(Math, 'random').mockReturnValue(0);
+    const crypto = require('crypto');
+    const randomSpy = jest.spyOn(crypto, 'randomInt').mockReturnValue(0);
 
     const game = {
       players: [
@@ -69,9 +65,14 @@ describe('BotService', () => {
   });
 
   it('should provide stable thinking delays by difficulty', () => {
+    const crypto = require('crypto');
+    const randomSpy = jest.spyOn(crypto, 'randomInt').mockReturnValue(0);
+
     expect(botService.getThinkingDelay('easy')).toBeGreaterThan(0);
     expect(botService.getThinkingDelay('medium')).toBeGreaterThan(botService.getThinkingDelay('easy'));
     expect(botService.getThinkingDelay('hard')).toBeGreaterThan(botService.getThinkingDelay('medium'));
     expect(botService.getThinkingDelay('unknown')).toBe(botService.getThinkingDelay('easy'));
+
+    randomSpy.mockRestore();
   });
 });

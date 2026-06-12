@@ -17,14 +17,15 @@ const {
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
 const { SOCKET_EVENTS_SERVER_TO_CLIENT: SERVER_EVENTS } = require('../constants/socket.constants');
-const { GAME_RULES } = require('../constants/rules.constants');
+const { GAME_MODE_LIMITS, GAME_STATUS, SAFE_ZONES } = require('../constants/game.constants');
 const logger = require('../utils/logger');
 const { withRedisLock } = require('../utils/redisLock');
 const { gameQueue } = require('../queues/gameQueue');
+const ProbabilityConfig = require('../models/probabilityConfig.model');
+const Game = require('../models/game.model');
 
 // Game constants
 const BOARD_SIZE = 52;
-const HOME_POSITIONS = [1, 9, 14, 22, 27, 35, 40, 48]; // Safe zones
 const HOME_ENTRY_START = 50;
 const HOME_ENTRY_END = 56; // 50-56 for final home run
 const MAX_DICE_VALUE = 6;
@@ -69,7 +70,7 @@ class GameService {
    * @param {Number} maxPlayers - Maximum players (always 4 for practice)
    * @returns {Promise<Object>} Created game with bots
    */
-  async createPracticeGame(userId, maxPlayers = 4) {
+  async createPracticeGame(userId, maxPlayers = 4, preferredColor = 'red') {
     try {
       // Ensure bots exist in database
       await ensureBotsExist();
@@ -79,11 +80,16 @@ class GameService {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
+      const colorMap = { red: 0, green: 1, yellow: 2, blue: 3 };
+      const userPos = colorMap[preferredColor] ?? 0;
+
       // Start with real player
       const players = [
         {
           userId,
-          position: 0,
+          position: userPos,
+          playerColor: preferredColor,
+          preferredColor,
           tokens: [
             { position: -1, active: false },
             { position: -1, active: false },
@@ -99,15 +105,20 @@ class GameService {
       // Try to add 3 bots
       const bots = await selectRandomBots(3, 'easy');
       if (bots && bots.length > 0) {
-        for (let i = 0; i < bots.length; i++) {
-          players.push(createBotPlayerObject(bots[i], players.length));
+        let botIndex = 0;
+        for (let i = 0; i < 4; i++) {
+          if (i === userPos) continue;
+          if (botIndex < bots.length) {
+            players.push(createBotPlayerObject(bots[botIndex], i));
+            botIndex++;
+          }
         }
       }
 
       const gameData = {
         gameType: 'practice',
-        status: 'active', // Start immediately with bots
-        maxPlayers: Math.max(players.length, 4),
+        status: GAME_STATUS.ACTIVE, // Start immediately with bots
+        maxPlayers: Math.max(players.length, Math.min(maxPlayers ?? GAME_MODE_LIMITS.PRACTICE, GAME_MODE_LIMITS.PRACTICE)),
         players,
         currentTurn: 0,
         moves: [],
@@ -148,10 +159,73 @@ class GameService {
    * @param {String} botDifficulty - Bot difficulty level (easy, medium, hard) - default: medium
    * @returns {Promise<Object>} Created game with bot
    */
-  async createCashGame(userId, entryFee, maxPlayers = 2, botDifficulty = 'medium') {
+  async createCashGame(userId, entryFee, maxPlayers = 2, botDifficulty = 'medium', preferredColor = 'red') {
     try {
       // Ensure bots exist in database
       await ensureBotsExist();
+
+      // If botDifficulty is already forced to 'hard' by the controller or matchmakingService 
+      // (e.g. threshold exceeded), we respect it. Otherwise, we check first match and probability manager.
+      if (botDifficulty !== 'hard') {
+        let isFirstMatch = false;
+        try {
+          const user = await userRepository.findById(userId);
+          if (user && (user.totalGames || 0) === 0) {
+            isFirstMatch = true;
+          }
+        } catch (err) {
+          logger.error('Error checking first match in gameService:', err);
+        }
+
+        if (isFirstMatch) {
+          botDifficulty = 'easy';
+        } else {
+          // Probability Manager
+          try {
+            const ProbabilityConfig = require('../models/probabilityConfig.model');
+            const config = await ProbabilityConfig.findOne();
+            if (config && config.enabled) {
+              const activeGames = await Game.find({
+                status: { $in: ['active', 'ongoing'] },
+                'players.isBot': true,
+              }).select('_id betAmount createdAt players').lean();
+
+              const prospective = {
+                _id: 'prospective',
+                betAmount: entryFee || 0,
+                createdAt: new Date(),
+                players: [],
+              };
+              const allGames = activeGames.concat([prospective]);
+
+              allGames.sort((a, b) => {
+                const betA = a.betAmount || 0;
+                const betB = b.betAmount || 0;
+                if (betA !== betB) return betA - betB;
+                const timeA = new Date(a.createdAt).getTime();
+                const timeB = new Date(b.createdAt).getTime();
+                if (timeA !== timeB) return timeA - timeB;
+                return String(a._id).localeCompare(String(b._id));
+              });
+
+              const total = allGames.length;
+              let easyCount = 0;
+              if (config.winProbability === 100) easyCount = total;
+              else if (config.winProbability === 0) easyCount = 0;
+              else easyCount = Math.floor((total * config.winProbability) / 100);
+
+              const index = allGames.findIndex(g => String(g._id) === 'prospective');
+              if (index >= 0) {
+                botDifficulty = index < easyCount ? 'easy' : 'hard';
+              }
+            }
+          } catch (e) {
+            logger.warn('Probability Manager check failed at game creation:', e.message);
+          }
+        }
+      }
+
+      const gameId = crypto.randomBytes(8).toString('hex');
 
       const user = await userRepository.findById(userId);
       if (!user) {
@@ -159,13 +233,19 @@ class GameService {
       }
 
       // Deduct entry fee from user's wallet
-      await walletService.processGameEntry(userId, entryFee, null);
+      await walletService.processGameEntry(userId, entryFee, gameId);
+
+      const colorMap = { red: 0, green: 1, yellow: 2, blue: 3 };
+      const userPos = colorMap[preferredColor] ?? 0;
+      const botPos = (userPos + 2) % 4; // Diagonally opposite
 
       // Start with real player
       const players = [
         {
           userId,
-          position: 0,
+          position: userPos,
+          playerColor: preferredColor,
+          preferredColor,
           tokens: [
             { position: -1, active: false },
             { position: -1, active: false },
@@ -181,14 +261,17 @@ class GameService {
       // Try to add 1 bot with specified difficulty
       const bots = await selectRandomBots(1, botDifficulty);
       if (bots && bots.length > 0) {
-        players.push(createBotPlayerObject(bots[0], 1));
+        players.push(createBotPlayerObject(bots[0], botPos, botDifficulty));
       }
 
       const gameData = {
+        gameId,
         gameType: 'cash',
+        type: 'cash',
         entryFee,
-        status: 'active', // Start immediately with bot
-        maxPlayers: Math.max(players.length, 2),
+        betAmount: entryFee, // Game model uses betAmount field
+        status: GAME_STATUS.ACTIVE, // Start immediately with bot
+        maxPlayers: Math.max(players.length, Math.min(maxPlayers ?? GAME_MODE_LIMITS.CASH, GAME_MODE_LIMITS.CASH)),
         players,
         currentTurn: 0,
         moves: [],
@@ -244,7 +327,7 @@ class GameService {
         throw new ApiError(HTTP_STATUS.CONFLICT, 'Game is full');
       }
 
-      if (game.status !== 'waiting') {
+      if (game.status !== GAME_STATUS.PENDING) {
         throw new ApiError(HTTP_STATUS.CONFLICT, 'Game already started');
       }
 
@@ -260,7 +343,7 @@ class GameService {
       }
 
       if (game.gameType === 'cash') {
-        await walletService.processGameEntry(userId, game.entryFee, gameId);
+        await walletService.processGameEntry(userId, game.betAmount || game.entryFee || 0, gameId);
       }
 
       const playerData = {
@@ -358,7 +441,7 @@ class GameService {
 
         game = await this._handleTurnTimeout(gameId, game);
 
-        if (game.status !== 'active') {
+        if (game.status !== GAME_STATUS.ACTIVE) {
           throw new ApiError(HTTP_STATUS.CONFLICT, 'Game is not active');
         }
  
@@ -451,7 +534,7 @@ class GameService {
 
         game = await this._handleTurnTimeout(gameId, game);
 
-        if (game.status !== 'active') {
+        if (game.status !== GAME_STATUS.ACTIVE) {
           throw new ApiError(HTTP_STATUS.CONFLICT, 'Game is not active');
         }
 
@@ -580,8 +663,8 @@ class GameService {
     return await withRedisLock(gameId, async () => {
       try {
         const game = await gameRepository.findById(gameId);
-        if (!game) {
-          throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
+        if (!game || game.status !== GAME_STATUS.ACTIVE) {
+          throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found or already ended');
         }
 
         const playerIndex = game.players.findIndex(
@@ -592,32 +675,18 @@ class GameService {
           throw new ApiError(HTTP_STATUS.FORBIDDEN, 'User not in this game');
         }
 
-        // Update game status
+        // Find the other player (winner)
+        const otherPlayer = game.players.find((p, idx) => idx !== playerIndex);
+        const winnerId = otherPlayer ? toUserIdString(otherPlayer.userId) : null;
+
         const results = {
           surrenderedBy: userId,
           status: 'surrendered',
+          winner: winnerId
         };
 
-        const updatedGame = await gameRepository.surrenderGame(gameId, userId);
-
-        // Refund entry fee for cash games
-        if (game.gameType === 'cash') {
-          try {
-            await walletService.processGameReward(userId, game.entryFee, gameId);
-          } catch (error) {
-            logger.error('Error refunding surrender fee:', error);
-          }
-        }
-
-        const formattedGame = this._formatGameResponse(updatedGame);
-        gameEvents.emit(SERVER_EVENTS.GAME_ENDED, {
-          gameId,
-          userId,
-          results,
-          game: formattedGame,
-        });
-        logger.info(`User ${userId} surrendered game ${gameId}`);
-        return formattedGame;
+        // Complete the game instead of just marking as surrendered to ensure proper rewards/penalties
+        return await this.completeGame(gameId, results);
       } catch (error) {
         if (error instanceof ApiError) throw error;
         logger.error('Error surrendering game:', error);
@@ -655,11 +724,20 @@ class GameService {
       await gameRepository.completeGame(gameId, results, { session: sess });
 
       const winnerStr = toUserIdString(results.winner);
-      const entryFee = game.entryFee || 0;
+      const entryFee = game.betAmount || game.entryFee || 0;
       const numPlayers = game.players.length;
-      const totalPot = game.gameType === 'cash' ? entryFee * numPlayers : 0;
+
+      // REWARD FORMULA:
+      // Winner gets their own entry fee back + 90% of opponent's entry fee
+      // Example: 10 coin bet → winner gets 10 + 9 = 19 coins total
+      //          100 coin bet → winner gets 100 + 90 = 190 coins total
+      // Admin keeps 10% of opponent's fee as commission
+      const opponentCount = Math.max(0, numPlayers - 1);
       const rewardAmount =
-        game.gameType === 'cash' && winnerStr ? Math.floor(totalPot * 0.9) : 0;
+        game.gameType === 'cash' && winnerStr && entryFee > 0
+          ? entryFee + Math.floor(entryFee * 0.9 * opponentCount)
+          : 0;
+
       const startedAt = game.startTime || game.createdAt || new Date();
       const durationMs = Math.max(0, Date.now() - new Date(startedAt).getTime());
       const totalMoves = Array.isArray(game.moves) ? game.moves.length : 0;
@@ -697,7 +775,7 @@ class GameService {
 
       try {
         await matchHistoryRepository.create({
-          gameId: new mongoose.Types.ObjectId(gameId),
+          gameId: game._id,
           gameType: game.gameType,
           betAmount: entryFee,
           duration: durationMs,
@@ -711,12 +789,29 @@ class GameService {
         logger.error('Error recording match history:', error);
       }
 
-      // Distribute rewards for cash games
-      if (game.gameType === 'cash' && results.winner) {
-        try {
-          await walletService.processGameReward(results.winner, rewardAmount, gameId, sess);
-        } catch (error) {
-          logger.error('Error distributing reward:', error);
+      // Distribute rewards and unlock wallets for cash games
+      if (game.gameType === 'cash') {
+        for (const player of game.players) {
+          try {
+            const uid = toUserIdString(player.userId);
+            const isBot = !!(isBotMap[uid] && isBotMap[uid].isBot);
+            if (isBot) continue;
+
+            const isWinner = uid === winnerStr;
+
+            if (isWinner) {
+              // Winner: unlock wallet AND credit reward coins
+              await walletService.processGameReward(uid, rewardAmount, gameId, sess);
+              logger.info(`[completeGame] Winner ${uid} credited ${rewardAmount} coins (entry: ${entryFee}) for game ${gameId}`);
+            } else {
+              // Loser: just unlock their wallet (no coins — entry fee already deducted at game start)
+              const walletRepository = require('../repositories/walletRepository');
+              await walletRepository.unlockWallet(uid, typeof sess === 'object' && sess !== null ? sess : undefined);
+              logger.info(`[completeGame] Loser ${uid} wallet unlocked for game ${gameId}`);
+            }
+          } catch (error) {
+            logger.error(`Error processing reward/unlock for user ${player.userId}:`, error);
+          }
         }
       }
 
@@ -863,7 +958,7 @@ class GameService {
     try {
       // Find the user's active game
       const game = await gameRepository.findActiveGameForUser(userId);
-      if (!game || (game.status !== 'active' && game.status !== 'ongoing')) {
+      if (!game || game.status !== GAME_STATUS.ACTIVE) {
         return;
       }
 
@@ -885,14 +980,10 @@ class GameService {
         userId,
       });
 
-      logger.info(`User ${userId} disconnected from game ${game._id}`);
+      logger.info(`User ${userId} disconnected from game ${game._id}. Auto-surrendering immediately.`);
 
-      // Schedule auto-surrender timeout via BullMQ (30 seconds)
-      await gameQueue.add(
-        'afk-check',
-        { gameId: game._id, userId },
-        { delay: DISCONNECT_TIMEOUT, jobId: `afk-${game._id}-${userId}` }
-      );
+      // Auto-surrender instantly
+      await this.surrenderGame(game._id, userId);
     } catch (error) {
       logger.error('Error handling disconnect:', error);
     }
@@ -987,7 +1078,7 @@ class GameService {
    * @private
    */
   async _handleTurnTimeout(gameId, game) {
-    if (!game || game.status !== 'active' || !game.updatedAt) {
+    if (!game || game.status !== GAME_STATUS.ACTIVE || !game.updatedAt) {
       return game;
     }
  
@@ -1045,12 +1136,14 @@ class GameService {
    * @private
    */
   _checkKill(game, playerIndex, newPosition) {
-    if (newPosition < 0 || newPosition > 51) {
+    if (newPosition < 0 || newPosition > 50) {
       return null; // Safe zones or home lane
     }
 
-    const newGlobalPos = (newPosition + playerIndex * 13 + 1) % 52;
-    if (HOME_POSITIONS.includes(newGlobalPos)) {
+    const currentPlayer = game.players[playerIndex];
+    const currentBoardPos = currentPlayer.position !== undefined ? currentPlayer.position : playerIndex;
+    const newGlobalPos = (newPosition + currentBoardPos * 13 + 1) % 52;
+    if (SAFE_ZONES.includes(newGlobalPos)) {
       return null;
     }
 
@@ -1058,9 +1151,10 @@ class GameService {
       if (i === playerIndex) continue;
 
       const opponentPlayer = game.players[i];
+      const oppBoardPos = opponentPlayer.position !== undefined ? opponentPlayer.position : i;
       const killedTokenIndex = opponentPlayer.tokens.findIndex(t => {
-        if (t.position < 0 || t.position > 51) return false;
-        const oppGlobalPos = (t.position + i * 13 + 1) % 52;
+        if (t.position < 0 || t.position > 50) return false;
+        const oppGlobalPos = this._getGlobalBoardPosition(t.position, oppBoardPos);
         return oppGlobalPos === newGlobalPos;
       });
 
@@ -1073,91 +1167,315 @@ class GameService {
   }
 
   /**
+   * Convert a player-relative main-track position into a shared board position.
+   * @private
+   */
+  _getGlobalBoardPosition(position, boardPos) {
+    if (position < 0 || position > 50) {
+      return null;
+    }
+
+    return (position + boardPos * 13 + 1) % 52;
+  }
+
+  /**
+   * Check if position is a safe zone
+   * @private
+   */
+  _isSafeZone(localPos, boardPos) {
+    const globalPos = this._getGlobalBoardPosition(localPos, boardPos);
+    return globalPos !== null && SAFE_ZONES.includes(globalPos);
+  }
+
+  /**
+   * Check if bot has kill opportunity in next N turns (look ahead)
+   * @private
+   */
+  _hasKillOpportunityAhead(botPlayer, humanPlayer, game, botIndex, turnsAhead) {
+    if (!botPlayer || !humanPlayer) return false;
+
+    // Check current positions for all possible dice rolls (1-6)
+    for (let diceVal = 1; diceVal <= 6; diceVal++) {
+      for (let tokenIdx = 0; tokenIdx < 4; tokenIdx++) {
+        const token = botPlayer.tokens[tokenIdx];
+        if (token.position >= 0 && token.position < 52) {
+          const newPos = token.position + diceVal;
+          if (newPos < 52 && newPos <= 56) {
+            const boardPos = botPlayer.position !== undefined ? botPlayer.position : botIndex;
+            
+            // Check if this move would be a safe zone
+            if (this._isSafeZone(newPos, boardPos)) continue;
+            
+            // Check if opponent can be killed at this position
+            for (let oppIdx = 0; oppIdx < 4; oppIdx++) {
+              if (oppIdx === botIndex) continue;
+              const oppPlayer = game.players[oppIdx];
+              if (!oppPlayer) continue;
+              
+              for (let oppTokenIdx = 0; oppTokenIdx < 4; oppTokenIdx++) {
+                const oppToken = oppPlayer.tokens[oppTokenIdx];
+                // Opponent token at same position and not in safe zone
+                if (oppToken.position === newPos) {
+                  const oppBoardPos = oppPlayer.position !== undefined ? oppPlayer.position : oppIdx;
+                  if (!this._isSafeZone(oppToken.position, oppBoardPos)) {
+                    return true; // Kill opportunity found!
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return false; // No kill opportunity
+  }
+
+  /**
    * Get rigged dice value for hard mode bot
    * @private
    */
   _getRiggedDiceValue(game, playerIndex, isBotRoll) {
+    let diceValue = this._calculateRiggedDiceValue(game, playerIndex, isBotRoll);
+    
+    // Prevent 3 consecutive 6s
+    const player = game.players[playerIndex];
+    if (player && player.consecutiveSixes >= 2 && diceValue === 6) {
+      diceValue = crypto.randomInt(1, 6); // 1 to 5
+    }
+    
+    return diceValue;
+  }
+
+  _calculateRiggedDiceValue(game, playerIndex, isBotRoll) {
     let diceValue = crypto.randomInt(1, 7);
     try {
-      let hasHardBot = false;
+      let botPlayers = [];
       let humanPlayer = null;
       for (let i = 0; i < game.players.length; i++) {
         const p = game.players[i];
-        if (p.isBot && p.botDifficulty === 'hard') hasHardBot = true;
-        else if (!p.isBot) humanPlayer = p;
+        if (p.isBot) botPlayers.push(p);
+        else humanPlayer = p;
       }
 
-      if (!hasHardBot || !humanPlayer) return diceValue;
+      if (!humanPlayer) return diceValue;
 
-      const humanCompleted = humanPlayer.tokens.filter(t => t.position === 57 || humanPlayer.isHome[humanPlayer.tokens.indexOf(t)]).length;
-      const isUserWinning = humanCompleted >= 2;
+      // Determine difficulty from bot players (fallback to 'easy')
+      let botDifficulty = 'easy';
+      if (botPlayers.some(b => b.botDifficulty === 'hard')) {
+        botDifficulty = 'hard';
+      } else if (botPlayers.some(b => b.botDifficulty === 'medium')) {
+        botDifficulty = 'medium';
+      }
 
-      if (!isBotRoll) {
-        // Anti-required move for human's last token to enter home
-        if (humanCompleted === 3) {
-            let requiredValueToWin = null;
-            for(let i=0; i<4; i++) {
-                if(!humanPlayer.isHome[i] && humanPlayer.tokens[i].position >= 51 && humanPlayer.tokens[i].position < 57) {
-                    requiredValueToWin = 57 - humanPlayer.tokens[i].position;
-                    break;
-                }
-            }
-            if(requiredValueToWin && diceValue === requiredValueToWin) {
-                // Deny the winning roll and re-roll 
-                let newRoll;
-                do {
-                    newRoll = crypto.randomInt(1, 7);
-                } while(newRoll === requiredValueToWin);
-                diceValue = newRoll;
-            }
-        }
+      // 1. Medium Mode: Completely Fair
+      if (botDifficulty === 'medium') {
         return diceValue;
-      } else {
-        const botPlayer = game.players[playerIndex];
-        
-        // 30% chance to get exact required move to enter home if near home
-        if (crypto.randomInt(0, 100) < 30) {
-            for (let i = 0; i < 4; i++) {
-                const token = botPlayer.tokens[i];
-                if (!botPlayer.isHome[i] && token.position >= 51 && token.position < 57) {
-                    const requiredHomeRoll = 57 - token.position;
-                    if (requiredHomeRoll >= 1 && requiredHomeRoll <= 6) {
-                        return requiredHomeRoll;
-                    }
-                }
-            }
-        }
+      }
 
-        // Always try to find a required move to kill opponent
-        let requiredValue = null;
-        for (let d = 1; d <= 6; d++) {
+      // 2. Easy Mode: In favor of user (75% win rate target)
+      if (botDifficulty === 'easy') {
+        if (!isBotRoll) {
+          // Helper: 25% chance to roll a 6 to spawn a token if user has none on the board
+          let activeTokens = 0;
+          let hasTokensInBase = false;
+          for (let i = 0; i < 4; i++) {
+            if (humanPlayer.tokens[i].position === -1) hasTokensInBase = true;
+            else if (humanPlayer.tokens[i].position >= 0 && humanPlayer.tokens[i].position < 56) activeTokens++;
+          }
+          if (activeTokens === 0 && hasTokensInBase) {
+            if (crypto.randomInt(0, 100) < 25) {
+              return 6;
+            }
+          }
+
+          // Helper: 35% chance to get exact required roll to kill any bot token
+          let requiredKillRoll = null;
+          const humanBoardPos = humanPlayer.position !== undefined ? humanPlayer.position : playerIndex;
+          for (let d = 1; d <= 6; d++) {
+            for (let i = 0; i < 4; i++) {
+              const token = humanPlayer.tokens[i];
+              if (token.position >= 0 && token.position < 52) {
+                const newPos = token.position + d;
+                if (newPos < 52 && !this._isSafeZone(newPos, humanBoardPos)) {
+                  const newGlobalPos = this._getGlobalBoardPosition(newPos, humanBoardPos);
+                  for (const bot of botPlayers) {
+                    const botBoardPos = bot.position !== undefined ? bot.position : game.players.indexOf(bot);
+                    for (const botToken of bot.tokens) {
+                      if (botToken.position >= 0 && botToken.position <= 50) {
+                        const botGlobalPos = this._getGlobalBoardPosition(botToken.position, botBoardPos);
+                        if (botGlobalPos === newGlobalPos) {
+                          requiredKillRoll = d;
+                          break;
+                        }
+                      }
+                    }
+                    if (requiredKillRoll) break;
+                  }
+                }
+              }
+              if (requiredKillRoll) break;
+            }
+            if (requiredKillRoll) break;
+          }
+
+          if (requiredKillRoll && crypto.randomInt(0, 100) < 35) {
+            return requiredKillRoll;
+          }
+
+          return diceValue;
+        } else {
+          // Bot rolls: 50% chance to avoid a roll that would kill a human token
+          const botPlayer = game.players[playerIndex];
+          if (!botPlayer) return diceValue;
+
+          const botBoardPos = botPlayer.position !== undefined ? botPlayer.position : playerIndex;
+          let wouldKill = false;
+
           for (let i = 0; i < 4; i++) {
             const token = botPlayer.tokens[i];
             if (token.position >= 0 && token.position < 52) {
-              const newPos = token.position + d;
-              if (newPos < 52) {
-                const killed = this._checkKill(game, playerIndex, newPos);
-                if (killed) { requiredValue = d; break; }
+              const newPos = token.position + diceValue;
+              if (newPos < 52 && !this._isSafeZone(newPos, botBoardPos)) {
+                const newGlobalPos = this._getGlobalBoardPosition(newPos, botBoardPos);
+                const humanBoardPos = humanPlayer.position !== undefined ? humanPlayer.position : game.players.indexOf(humanPlayer);
+                for (const humanToken of humanPlayer.tokens) {
+                  if (humanToken.position >= 0 && humanToken.position <= 50) {
+                    const humanGlobalPos = this._getGlobalBoardPosition(humanToken.position, humanBoardPos);
+                    if (humanGlobalPos === newGlobalPos) {
+                      wouldKill = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            if (wouldKill) break;
+          }
+
+          if (wouldKill && crypto.randomInt(0, 100) < 50) {
+            let safeRolls = [];
+            for (let d = 1; d <= 6; d++) {
+              let killsOpponent = false;
+              for (let i = 0; i < 4; i++) {
+                const token = botPlayer.tokens[i];
+                if (token.position >= 0 && token.position < 52) {
+                  const newPos = token.position + d;
+                  if (newPos < 52 && !this._isSafeZone(newPos, botBoardPos)) {
+                    const newGlobalPos = this._getGlobalBoardPosition(newPos, botBoardPos);
+                    const humanBoardPos = humanPlayer.position !== undefined ? humanPlayer.position : game.players.indexOf(humanPlayer);
+                    for (const humanToken of humanPlayer.tokens) {
+                      if (humanToken.position >= 0 && humanToken.position <= 50) {
+                        const humanGlobalPos = this._getGlobalBoardPosition(humanToken.position, humanBoardPos);
+                        if (humanGlobalPos === newGlobalPos) {
+                          killsOpponent = true;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              if (!killsOpponent) {
+                safeRolls.push(d);
+              }
+            }
+            if (safeRolls.length > 0) {
+              diceValue = safeRolls[crypto.randomInt(0, safeRolls.length)];
+            }
+          }
+
+          return diceValue;
+        }
+      }
+
+      // 3. Hard Mode: Rigged against human (same logic as before)
+      if (botDifficulty === 'hard') {
+        const humanCompleted = humanPlayer.tokens.filter((t, i) => Number(t.position) === 56 || humanPlayer.isHome[i]).length;
+        const isUserWinning = humanCompleted >= 2;
+
+        if (!isBotRoll) {
+          // Anti-required move for human's last token to enter home
+          if (humanCompleted === 3) {
+            let requiredValueToWin = null;
+            for (let i = 0; i < 4; i++) {
+              if (!humanPlayer.isHome[i] && humanPlayer.tokens[i].position >= 50 && humanPlayer.tokens[i].position < 56) {
+                requiredValueToWin = 56 - humanPlayer.tokens[i].position;
+                break;
+              }
+            }
+            if (requiredValueToWin) {
+              let allowed = [];
+              for (let v = 1; v <= 6; v++) {
+                if (v === requiredValueToWin) continue;
+                if (v < requiredValueToWin) allowed.push(v);
+              }
+              if (allowed.length === 0) {
+                for (let v = 1; v <= 6; v++) if (v !== requiredValueToWin) allowed.push(v);
+              }
+
+              const prefersSmaller = requiredValueToWin > 1;
+              const isCurrentAllowed = prefersSmaller ? (diceValue < requiredValueToWin) : (diceValue !== requiredValueToWin);
+
+              if (!isCurrentAllowed) {
+                diceValue = allowed[crypto.randomInt(0, allowed.length)];
               }
             }
           }
-          if (requiredValue) break;
-        }
-
-        if (requiredValue) {
-           diceValue = requiredValue;
-        } else if (isUserWinning) {
-           // Weighted probability: 60% chance for a high value (4,5,6), 40% for any
-           if (crypto.randomInt(0, 100) < 60) {
-             const highValues = [4, 5, 6, 6, 6];
-             diceValue = highValues[crypto.randomInt(0, highValues.length)];
-           } else {
-             diceValue = crypto.randomInt(1, 7);
-           }
+          return diceValue;
         } else {
-           diceValue = crypto.randomInt(1, 7);
+          const botPlayer = game.players[playerIndex];
+          if (!botPlayer) return diceValue;
+
+          // 30% chance to get exact required move to enter home if near home
+          if (crypto.randomInt(0, 100) < 30) {
+            for (let i = 0; i < 4; i++) {
+              const token = botPlayer.tokens[i];
+              if (!botPlayer.isHome[i] && token.position >= 50 && token.position < 56) {
+                const requiredHomeRoll = 56 - token.position;
+                if (requiredHomeRoll >= 1 && requiredHomeRoll <= 6) {
+                  return requiredHomeRoll;
+                }
+              }
+            }
+          }
+
+          // SMART RIGGING: Only give kill value if kill opportunity exists in next 2-3 turns
+          let requiredValue = null;
+          const hasKillOpportunity = this._hasKillOpportunityAhead(botPlayer, humanPlayer, game, playerIndex, 2);
+
+          if (hasKillOpportunity) {
+            for (let d = 1; d <= 6; d++) {
+              for (let i = 0; i < 4; i++) {
+                const token = botPlayer.tokens[i];
+                if (token.position >= 0 && token.position < 52) {
+                  const newPos = token.position + d;
+                  const boardPos = botPlayer.position !== undefined ? botPlayer.position : playerIndex;
+                  if (newPos < 52 && !this._isSafeZone(newPos, boardPos)) {
+                    const killed = this._checkKill(game, playerIndex, newPos);
+                    if (killed) { requiredValue = d; break; }
+                  }
+                }
+              }
+              if (requiredValue) break;
+            }
+          }
+
+          if (requiredValue) {
+            diceValue = requiredValue;
+          } else if (isUserWinning) {
+            if (crypto.randomInt(0, 100) < 66) {
+              const highValues = [4, 5, 6, 6, 6];
+              diceValue = highValues[crypto.randomInt(0, highValues.length)];
+            } else {
+              diceValue = crypto.randomInt(1, 7);
+            }
+          } else {
+            diceValue = crypto.randomInt(1, 7);
+          }
         }
       }
+
       if (diceValue < 1 || diceValue > 6) diceValue = crypto.randomInt(1, 7);
       return diceValue;
     } catch (e) {
@@ -1178,7 +1496,7 @@ class GameService {
       // Token locked - needs 6
       if (token.position === -1) {
         if (diceValue === 6) validMoves.push(i);
-      } else if (token.position >= 0 && token.position + diceValue <= 57 && !player.isHome?.[i] && token.position !== 57) {
+      } else if (token.position >= 0 && token.position + diceValue <= 56 && !player.isHome?.[i] && token.position !== 56) {
         // Token can move
         validMoves.push(i);
       }
@@ -1194,7 +1512,7 @@ class GameService {
   async _triggerBotTurn(gameId) {
     try {
       const game = await gameRepository.findById(gameId);
-      if (!game || game.status !== 'active') {
+      if (!game || game.status !== GAME_STATUS.ACTIVE) {
         return;
       }
 
@@ -1242,7 +1560,7 @@ class GameService {
   async _botRollDice(gameId) {
     try {
       let game = await gameRepository.findById(gameId);
-      if (!game || game.status !== 'active') {
+      if (!game || game.status !== GAME_STATUS.ACTIVE) {
         return;
       }
 
@@ -1308,7 +1626,7 @@ class GameService {
   async _botMoveToken(gameId, validMoves, diceValue) {
     try {
       let game = await gameRepository.findById(gameId);
-      if (!game || game.status !== 'active') {
+      if (!game || game.status !== GAME_STATUS.ACTIVE) {
         return;
       }
 
@@ -1337,7 +1655,7 @@ class GameService {
   async _botSkipTurn(gameId) {
     try {
       let game = await gameRepository.findById(gameId);
-      if (!game || game.status !== 'active') {
+      if (!game || game.status !== GAME_STATUS.ACTIVE) {
         return;
       }
 
@@ -1390,6 +1708,7 @@ class GameService {
     const gameClone = JSON.parse(JSON.stringify(game));
     const currentPlayer = gameClone.players[playerIndex];
     const token = currentPlayer.tokens[tokenIndex];
+    const oldPosition = token.position;
 
     const moveData = {
       playerIndex,
@@ -1408,7 +1727,7 @@ class GameService {
       token.active = true;
     } else {
       newPosition = token.position + diceValue;
-      if (newPosition > 57) {
+      if (newPosition > 56) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid move');
       }
     }
@@ -1427,14 +1746,14 @@ class GameService {
       } else {
         token.position = newPosition;
         moveData.newPosition = newPosition;
-        if (newPosition === 57) currentPlayer.isHome[tokenIndex] = true;
+        if (newPosition === 56) currentPlayer.isHome[tokenIndex] = true;
       }
     } else {
       currentPlayer.consecutiveSixes = 0;
       nextTurn = (playerIndex + 1) % gameClone.players.length;
       token.position = newPosition;
       moveData.newPosition = newPosition;
-      if (newPosition === 57) currentPlayer.isHome[tokenIndex] = true;
+      if (newPosition === 56) currentPlayer.isHome[tokenIndex] = true;
     }
 
     // Check for kills using the clone (only if token actually moved)
@@ -1448,13 +1767,17 @@ class GameService {
       nextTurn = playerIndex;
     }
 
-    // Grant extra turn if token reached the Home goal (57)
-    if (newPosition === 57 && moveData.action === 'move_token') {
-      nextTurn = playerIndex;
+    // Grant extra turn if token reached the Home goal (56)
+    if (moveData.action === 'move_token') {
+      if (newPosition === 56) {
+        nextTurn = playerIndex;
+      }
     }
 
-    // Check for win using the clone: tokens must be at position 57
-    const hasWon = currentPlayer.tokens.every(t => t.position === 57);
+    // Check for win using the clone: tokens must be at position 56
+    const hasWon = currentPlayer.tokens.every(t => Number(t.position) === 56) || currentPlayer.isHome.every(h => h === true);
+    
+    logger.info(`Checking win for player ${playerIndex}: hasWon=${hasWon}, tokens=${JSON.stringify(currentPlayer.tokens)}, isHome=${JSON.stringify(currentPlayer.isHome)}`);
 
 
     const executeApplyMoveLogic = async (sess) => {
@@ -1469,24 +1792,17 @@ class GameService {
         }, opts);
       }
 
-      if (hasWon) {
-        await gameRepository.updatePlayerBoard(gameId, playerIndex, {
-          tokens: currentPlayer.tokens,
-          isHome: currentPlayer.isHome,
-          consecutiveSixes: currentPlayer.consecutiveSixes,
-        }, opts);
-        return;
-      }
-
-      if (nextTurn !== playerIndex) {
-        await gameRepository.updateCurrentTurn(gameId, nextTurn, opts);
-      } else {
-        // Human player gets an extra turn (rolled a 6, got a kill, or reached home 57).
-        // We increment currentTurnCount and reset turnStartedAt to refresh the turn version and timer.
-        await gameRepository.update(gameId, {
-          $inc: { currentTurnCount: 1 },
-          $set: { turnStartedAt: new Date() }
-        }, opts);
+      if (!hasWon) {
+        if (nextTurn !== playerIndex) {
+          await gameRepository.updateCurrentTurn(gameId, nextTurn, opts);
+        } else {
+          // Human player gets an extra turn (rolled a 6, got a kill, or reached home 57).
+          // We increment currentTurnCount and reset turnStartedAt to refresh the turn version and timer.
+          await gameRepository.update(gameId, {
+            $inc: { currentTurnCount: 1 },
+            $set: { turnStartedAt: new Date() }
+          }, opts);
+        }
       }
 
       await gameRepository.updatePlayerBoard(gameId, playerIndex, {
@@ -1539,20 +1855,6 @@ class GameService {
       }
     }
 
-    if (hasWon) {
-      const results = {
-        winner: toUserIdString(currentPlayer.userId),
-        ranking: [toUserIdString(currentPlayer.userId)],
-      };
-      return await this.completeGame(gameId, results);
-    }
-
-    // Use the latest game object returned by the last repository update in the transaction
-    const updatedGame = await gameRepository.findById(gameId); // Transaction might have finished, fetch once for final state
-    const formattedGame = this._formatGameResponse(updatedGame);
-
-    const turnChanged = nextTurn !== playerIndex;
-
     gameEvents.emit(SERVER_EVENTS.TOKEN_MOVED, {
       gameId,
       userId: actionUserId,
@@ -1562,6 +1864,28 @@ class GameService {
       newPosition,
       killedOpponent,
     });
+
+    if (hasWon) {
+      const results = {
+        winner: toUserIdString(currentPlayer.userId),
+        ranking: [toUserIdString(currentPlayer.userId)],
+      };
+      
+      const completedGame = await this.completeGame(gameId, results);
+      
+      // Also emit GAME_STATE_SYNC for absolute certainty that frontend catches it
+      gameEvents.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
+        gameId,
+        game: completedGame,
+      });
+      
+      return completedGame;
+    }
+
+    const turnChanged = nextTurn !== playerIndex;
+
+    const updatedGame = await gameRepository.findById(gameId);
+    const formattedGame = this._formatGameResponse(updatedGame);
 
     if (turnChanged) {
       gameEvents.emit(SERVER_EVENTS.TURN_CHANGED, {
@@ -1598,7 +1922,7 @@ class GameService {
    */
   _formatGameResponse(game) {
     const currentPlayer = game.players && game.players[game.currentTurn];
-    const validMoves = (game.status === 'active' && game.diceValue > 0 && currentPlayer)
+    const validMoves = (game.status === GAME_STATUS.ACTIVE && game.diceValue > 0 && currentPlayer)
       ? this._getValidMoves(currentPlayer, game.diceValue)
       : [];
 
@@ -1610,13 +1934,16 @@ class GameService {
       currentTurn: game.currentTurn,
       players: game.players.map((p, idx) => {
         const isPopulated = p.userId && typeof p.userId === 'object' && p.userId._id;
+        // Use playerName if set (for bots), otherwise use populated User name
+        const playerName = p.playerName || (isPopulated ? p.userId.name : 'Player');
         return {
-          position: idx,
+          position: p.position ?? idx,
           userId: toUserIdString(p.userId),
-          name: isPopulated ? p.userId.name : 'Player',
+          name: playerName,
           avatar: isPopulated ? p.userId.avatar : null,
+          preferredColor: p.preferredColor || 'red',
           tokens: p.tokens,
-          isHome: (p.isHome && p.isHome.length === 4) ? p.isHome : p.tokens.map(t => t.position === 57),
+          isHome: (p.isHome && p.isHome.length === 4) ? p.isHome : p.tokens.map(t => t.position === 56),
           consecutiveSixes: p.consecutiveSixes,
         };
       }),
@@ -1627,7 +1954,8 @@ class GameService {
       startTime: game.startTime,
       endTime: game.endTime,
       results: game.results,
-      entryFee: game.entryFee,
+      entryFee: game.betAmount || game.entryFee || 0,
+      betAmount: game.betAmount || game.entryFee || 0,
       createdAt: game.createdAt,
       updatedAt: game.updatedAt,
     };
@@ -1638,7 +1966,7 @@ class GameService {
   async _triggerBotTurnInternal(gameId) {
     return await withRedisLock(gameId, async () => {
       const game = await gameRepository.findById(gameId);
-      if (!game || game.status !== 'active' || game.isBotProcessing) {
+      if (!game || game.status !== GAME_STATUS.ACTIVE || game.isBotProcessing) {
         return;
       }
 
@@ -1665,7 +1993,7 @@ class GameService {
   async _handleTurnTimeoutInternal(gameId) {
     return await withRedisLock(gameId, async () => {
       const game = await gameRepository.findById(gameId);
-      if (game && game.status === 'active') {
+      if (game && game.status === GAME_STATUS.ACTIVE) {
         await this._handleTurnTimeout(gameId, game);
       }
     });
@@ -1674,7 +2002,7 @@ class GameService {
   async _handleAfkTimeoutInternal(gameId, userId) {
     return await withRedisLock(gameId, async () => {
       const game = await gameRepository.findById(gameId);
-      if (!game || game.status !== 'active') return;
+      if (!game || game.status !== GAME_STATUS.ACTIVE) return;
 
       const p = game.players.find(p => toUserIdString(p.userId) === userId);
       if (p && !p.isActive) {
@@ -1739,7 +2067,7 @@ class GameService {
       try {
         await withRedisLock(gameId, async () => {
           let game = await gameRepository.findById(gameId);
-          if (!game || game.status !== 'active') return;
+          if (!game || game.status !== GAME_STATUS.ACTIVE) return;
           if (game.currentTurnCount !== turnVersion) return; // Stale state
 
           const playerIndex = game.currentTurn;

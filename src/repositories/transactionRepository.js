@@ -122,7 +122,7 @@ class TransactionRepository {
   async getTransactionSummary(userId) {
     try {
       const summary = await Transaction.aggregate([
-        { $match: { userId: require('mongoose').Types.ObjectId(userId) } },
+        { $match: { userId: new (require('mongoose').Types.ObjectId)(userId) } },
         {
           $group: {
             _id: '$type',
@@ -155,7 +155,7 @@ class TransactionRepository {
   async getUserCoinStats(userId) {
     try {
       const stats = await Transaction.aggregate([
-        { $match: { userId: require('mongoose').Types.ObjectId(userId) } },
+        { $match: { userId: new (require('mongoose').Types.ObjectId)(userId) } },
         {
           $group: {
             _id: null,
@@ -253,6 +253,48 @@ class TransactionRepository {
     } catch (error) {
       logger.error('Error deleting old transactions:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Find transactions within a date range
+   * @param {Date} startDate - Start date
+   * @param {Date} endDate - End date
+   * @param {Number} limit - Max results
+   * @returns {Promise<Array>} Transactions
+   */
+  async findByDateRange(startDate, endDate, limit = 1000) {
+    try {
+      const transactions = await Transaction.find({
+        createdAt: { $gte: startDate, $lte: endDate },
+      })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+      return transactions;
+    } catch (error) {
+      logger.error('Error finding transactions by date range:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Find recent transactions
+   * @param {Number} limit - Max results
+   * @returns {Promise<Array>} Recent transactions
+   */
+  async findRecent(limit = 100) {
+    try {
+      const transactions = await Transaction.find()
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean();
+
+      return transactions;
+    } catch (error) {
+      logger.error('Error finding recent transactions:', error);
+      return [];
     }
   }
 }

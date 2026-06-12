@@ -46,12 +46,12 @@ app.use(mongoSanitize());
 app.use(xss());
 
 // Logging
-if (config.isDevelopment) {
-  app.use(morgan('dev'));
-} else {
-  app.use(morgan('combined'));
-}
-app.use(loggingMiddleware);
+// if (config.isDevelopment) {
+//   app.use(morgan('dev'));
+// } else {
+//   app.use(morgan('combined'));
+// }
+// app.use(loggingMiddleware);
 
 // Health Check Route
 app.get('/health', (req, res) => {

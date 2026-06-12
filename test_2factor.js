@@ -1,0 +1,1 @@
+const axios = require('axios'); require('dotenv').config(); axios.get('https://2factor.in/API/V1/' + process.env.OTP_2FACTOR_API_KEY + '/SMS/+919999999999/AUTOGEN').catch(e => console.log(e.response ? e.response.data : e.message));

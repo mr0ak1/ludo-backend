@@ -3,7 +3,13 @@ const gameService = require('./gameService');
 const userRepository = require('../repositories/userRepository');
 const notificationService = require('./notificationService');
 const logger = require('../utils/logger');
-const { BOT_NAMES, BOT_FAKE_STATS, MATCHMAKING_CONFIG, BOT_LEVELS } = require('../constants/bot.constants');
+const {
+  BOT_NAMES,
+  BOT_FAKE_STATS,
+  MATCHMAKING_CONFIG,
+  BOT_LEVELS,
+} = require('../constants/bot.constants');
+const BotConfig = require('../models/botConfig.model');
 
 /**
  * Matchmaking Service - Handles queue and bot matching
@@ -11,17 +17,38 @@ const { BOT_NAMES, BOT_FAKE_STATS, MATCHMAKING_CONFIG, BOT_LEVELS } = require('.
 class MatchmakingService {
   constructor() {
     // Global bot difficulty setting (controlled by admin)
-    this.globalBotDifficulty = 'medium'; // Default
+    this.globalBotDifficulty = 'medium'; // Default global difficulty
+    this.hardModeThreshold = 450; // Auto hard mode if bet >= threshold
+    this._loadConfig();
+  }
+
+  async _loadConfig() {
+    try {
+      let config = await BotConfig.findOne();
+      if (!config) {
+        config = await BotConfig.create({ globalDifficulty: 'medium', hardModeThreshold: 450 });
+      }
+      this.globalBotDifficulty = config.globalDifficulty || 'medium';
+      this.hardModeThreshold = config.hardModeThreshold ?? 450;
+      logger.info(`Loaded BotConfig from DB - Difficulty: ${this.globalBotDifficulty}, Threshold: ${this.hardModeThreshold}`);
+    } catch (error) {
+      logger.error('Failed to load BotConfig:', error.message);
+    }
   }
 
   /**
    * Set global bot difficulty (admin only)
    * @param {String} difficulty - Bot difficulty (easy, medium, hard)
    */
-  setGlobalBotDifficulty(difficulty) {
+  async setGlobalBotDifficulty(difficulty) {
     if (BOT_LEVELS.includes(difficulty)) {
       this.globalBotDifficulty = difficulty;
       logger.info(`Global bot difficulty set to: ${difficulty}`);
+      try {
+        await BotConfig.findOneAndUpdate({}, { globalDifficulty: difficulty }, { upsert: true });
+      } catch (e) {
+        logger.error('Failed to save globalBotDifficulty to DB:', e.message);
+      }
     }
   }
 
@@ -31,6 +58,28 @@ class MatchmakingService {
    */
   getGlobalBotDifficulty() {
     return this.globalBotDifficulty;
+  }
+
+  /**
+   * Set hard mode threshold (admin only)
+   * @param {Number|null} amount - Amount threshold
+   */
+  async setHardModeThreshold(amount) {
+    this.hardModeThreshold = amount;
+    logger.info(`Auto hard mode threshold set to: ${amount}`);
+    try {
+      await BotConfig.findOneAndUpdate({}, { hardModeThreshold: amount }, { upsert: true });
+    } catch (e) {
+      logger.error('Failed to save hardModeThreshold to DB:', e.message);
+    }
+  }
+
+  /**
+   * Get current hard mode threshold
+   * @returns {Number|null} Current threshold
+   */
+  getHardModeThreshold() {
+    return this.hardModeThreshold;
   }
 
   /**
@@ -81,8 +130,10 @@ class MatchmakingService {
    */
   _simulateQueueMatch(queueId, userId, options) {
     // Simulate wait time between 2-5 seconds
-    const delay = Math.random() * (MATCHMAKING_CONFIG.FAKE_QUEUE_DELAY_MAX - MATCHMAKING_CONFIG.FAKE_QUEUE_DELAY_MIN) 
-      + MATCHMAKING_CONFIG.FAKE_QUEUE_DELAY_MIN;
+    const delay =
+      Math.random() *
+        (MATCHMAKING_CONFIG.FAKE_QUEUE_DELAY_MAX - MATCHMAKING_CONFIG.FAKE_QUEUE_DELAY_MIN) +
+      MATCHMAKING_CONFIG.FAKE_QUEUE_DELAY_MIN;
 
     setTimeout(async () => {
       try {
@@ -110,8 +161,32 @@ class MatchmakingService {
    */
   async _matchWithBot(queueEntry, userId, options) {
     try {
-      const botDifficulty = this.globalBotDifficulty;
+      let botDifficulty = this.globalBotDifficulty;
       const entryFee = options.betAmount || 0;
+
+      // Check if it's the user's first match
+      let isFirstMatch = false;
+      try {
+        const userRepository = require('../repositories/userRepository');
+        const user = await userRepository.findById(userId);
+        if (user && (user.totalGames || 0) === 0) {
+          isFirstMatch = true;
+        }
+      } catch (err) {
+        logger.error('Error checking user totalGames for bot difficulty:', err);
+      }
+
+      // Priority 2: First match logic (Easy mode)
+      if (isFirstMatch) {
+        botDifficulty = 'easy';
+        logger.info(`Bot difficulty set to easy for first match of user ${userId}`);
+      }
+
+      // Priority 1 (Highest): Auto hard mode logic (Threshold overrides everything)
+      if (this.hardModeThreshold !== null && entryFee >= this.hardModeThreshold) {
+        botDifficulty = 'hard';
+        logger.info(`Bot difficulty automatically set to hard due to bet amount (${entryFee} >= ${this.hardModeThreshold})`);
+      }
 
       // Create game with bot
       const game = await gameService.createCashGame(userId, entryFee, 2, botDifficulty);
@@ -120,7 +195,11 @@ class MatchmakingService {
       try {
         const botPlayer = game.players[1];
         if (botPlayer?.userId) {
-          const oid = botPlayer.userId._id ? botPlayer.userId._id.toString() : (botPlayer.userId.toString ? botPlayer.userId.toString() : String(botPlayer.userId));
+          const oid = botPlayer.userId._id
+            ? botPlayer.userId._id.toString()
+            : botPlayer.userId.toString
+              ? botPlayer.userId.toString()
+              : String(botPlayer.userId);
           const botUser = await userRepository.findById(oid);
           if (botUser?.name) opponentName = botUser.name;
         }
@@ -158,7 +237,7 @@ class MatchmakingService {
   async leaveQueue(userId) {
     try {
       const queueEntry = await queueRepository.findByUserId(userId);
-      
+
       if (!queueEntry) {
         throw new Error('Not in queue');
       }
@@ -197,7 +276,8 @@ class MatchmakingService {
 
       // Estimate position (fake, for display)
       const allWaiting = await queueRepository.findWaitingByGameType(queueEntry.gameType);
-      const position = allWaiting.findIndex(q => q._id.toString() === queueEntry._id.toString()) + 1;
+      const position =
+        allWaiting.findIndex((q) => q._id.toString() === queueEntry._id.toString()) + 1;
 
       return {
         inQueue: true,
@@ -235,7 +315,7 @@ class MatchmakingService {
     const stats = BOT_FAKE_STATS[difficulty.toUpperCase()] || BOT_FAKE_STATS.MEDIUM;
     const wins = stats.wins();
     const losses = stats.losses();
-    
+
     return {
       wins,
       losses,

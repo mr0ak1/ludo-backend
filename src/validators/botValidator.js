@@ -25,6 +25,7 @@ const validateCreateBotGame = (data) => {
         'number.min': 'Entry fee cannot be negative',
         'number.max': 'Entry fee cannot exceed 10000 coins',
       }),
+    preferredColor: Joi.string().valid('red', 'green', 'yellow', 'blue').optional().default('red'),
   });
 
   return schema.validate(data, { abortEarly: false });

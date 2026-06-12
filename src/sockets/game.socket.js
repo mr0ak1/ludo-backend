@@ -71,6 +71,19 @@ const gameSocket = (socket, io) => {
       const gameService = require('../services/gameService');
       const formattedGame = await gameService.restoreGameState(data.gameId);
       
+      if (socket.userId && formattedGame.players) {
+        const isParticipant = formattedGame.players.some(
+          (p) => p.userId === socket.userId
+        );
+        if (!isParticipant) {
+          socket.leave(room);
+          socket.emit(SERVER_EVENTS.ERROR_EVENT, {
+            message: 'Access Denied: You are not a participant in this game',
+          });
+          return;
+        }
+      }
+
       socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
         gameId: data.gameId,
         game: formattedGame,

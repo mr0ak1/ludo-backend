@@ -8,7 +8,7 @@ const router = express.Router();
  * POST /api/v1/bot/create-game
  * Create a new game against a bot opponent
  * Body: {
- *   difficulty?: 'easy' | 'medium' | 'hard' (default: 'medium'),
+ *   difficulty?: 'easy' | 'medium' | 'hard' (default: 'hard'),
  *   entryFee?: number (default: 0)
  * }
  */

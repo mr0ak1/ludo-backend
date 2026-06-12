@@ -1,21 +1,25 @@
 const Joi = require('joi');
+const { GAME_MODE_LIMITS, GAME_STATUS: GAME_STATUS_VALUES, GAME_TYPE } = require('../constants/game.constants');
 
 /**
  * Game type enum
  */
 const GAME_TYPES = {
-  PRACTICE: 'practice',
-  CASH: 'cash',
+  PRACTICE: GAME_TYPE.PRACTICE,
+  CASH: GAME_TYPE.CASH,
 };
 
 /**
  * Game status enum
  */
 const GAME_STATUS = {
-  WAITING: 'waiting',
-  ONGOING: 'ongoing',
-  COMPLETED: 'completed',
-  SURRENDERED: 'surrendered',
+  PENDING: GAME_STATUS_VALUES.PENDING,
+  ACTIVE: GAME_STATUS_VALUES.ACTIVE,
+  PAUSED: GAME_STATUS_VALUES.PAUSED,
+  COMPLETED: GAME_STATUS_VALUES.COMPLETED,
+  CANCELLED: GAME_STATUS_VALUES.CANCELLED,
+  RECONNECTING: GAME_STATUS_VALUES.RECONNECTING,
+  SURRENDERED: GAME_STATUS_VALUES.SURRENDERED,
 };
 
 /**
@@ -28,13 +32,14 @@ const validateCreatePracticeGame = (data) => {
     maxPlayers: Joi.number()
       .integer()
       .min(2)
-      .max(4)
+      .max(GAME_MODE_LIMITS.PRACTICE)
       .optional()
-      .default(4)
+      .default(GAME_MODE_LIMITS.PRACTICE)
       .messages({
         'number.min': 'Minimum 2 players required',
-        'number.max': 'Maximum 4 players allowed',
+        'number.max': `Maximum ${GAME_MODE_LIMITS.PRACTICE} players allowed`,
       }),
+    preferredColor: Joi.string().valid('red', 'green', 'yellow', 'blue').optional().default('red'),
   });
 
   return schema.validate(data, { abortEarly: false });
@@ -58,13 +63,14 @@ const validateCreateCashGame = (data) => {
     maxPlayers: Joi.number()
       .integer()
       .min(2)
-      .max(4)
+      .max(GAME_MODE_LIMITS.CASH)
       .optional()
-      .default(4)
+      .default(GAME_MODE_LIMITS.CASH)
       .messages({
         'number.min': 'Minimum 2 players required',
-        'number.max': 'Maximum 4 players allowed',
+        'number.max': `Maximum ${GAME_MODE_LIMITS.CASH} players allowed`,
       }),
+    preferredColor: Joi.string().valid('red', 'green', 'yellow', 'blue').optional().default('red'),
   });
 
   return schema.validate(data, { abortEarly: false });

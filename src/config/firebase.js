@@ -14,24 +14,40 @@ const hasFirebaseCredentials = () => {
   );
 };
 
+const fs = require('fs');
+const path = require('path');
+
 const initializeFirebase = () => {
   try {
-    if (!hasFirebaseCredentials()) {
-      console.warn('Firebase credentials not set. Push notifications are disabled.');
-      return null;
-    }
+    if (!firebaseApp) {
+      // First try to load from serviceAccountKey.json file
+      const serviceAccountPath = path.join(__dirname, '../../serviceAccountKey.json');
+      
+      if (fs.existsSync(serviceAccountPath)) {
+        const serviceAccount = require(serviceAccountPath);
+        firebaseApp = admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount)
+        });
+        console.log('Firebase initialized successfully using serviceAccountKey.json');
+        return firebaseApp;
+      }
 
-    const privateKey = config.firebase.privateKey.replace(/\\n/g, '\n');
-
-    if (!privateKey.includes('BEGIN PRIVATE KEY')) {
-      if (config.isDevelopment) {
-        console.warn('Firebase private key is not a valid PEM. Push notifications are disabled in development.');
+      // Fallback to .env variables
+      if (!hasFirebaseCredentials()) {
+        console.warn('Firebase credentials not set in .env or serviceAccountKey.json. Push notifications disabled.');
         return null;
       }
-      throw new Error('Invalid Firebase private key format');
-    }
 
-    if (!firebaseApp) {
+      const privateKey = config.firebase.privateKey.replace(/\\n/g, '\n');
+
+      if (!privateKey.includes('BEGIN PRIVATE KEY')) {
+        if (config.isDevelopment) {
+          console.warn('Firebase private key is not a valid PEM. Push notifications are disabled in development.');
+          return null;
+        }
+        throw new Error('Invalid Firebase private key format');
+      }
+
       firebaseApp = admin.initializeApp({
         credential: admin.credential.cert({
           projectId: config.firebase.projectId,
@@ -39,7 +55,7 @@ const initializeFirebase = () => {
           clientEmail: config.firebase.clientEmail,
         }),
       });
-      console.log('Firebase initialized successfully');
+      console.log('Firebase initialized successfully using .env');
     }
     return firebaseApp;
   } catch (error) {
@@ -94,11 +110,18 @@ const sendMulticastNotification = async (deviceTokens, { title, body, data = {} 
   const chunkSize = 500;
   for (let i = 0; i < tokens.length; i += chunkSize) {
     const chunk = tokens.slice(i, i + chunkSize);
-    const response = await messaging.sendEachForMulticast({
+    
+    const message = {
       tokens: chunk,
-      notification: { title, body },
       data: stringData,
-    });
+    };
+
+    // If it's a silent push (in-app only), we don't send the 'notification' object
+    if (data.type !== 'IN_APP_POPUP') {
+      message.notification = { title, body };
+    }
+
+    const response = await messaging.sendEachForMulticast(message);
 
     successCount += response.successCount;
     failureCount += response.failureCount;

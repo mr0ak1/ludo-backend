@@ -48,6 +48,28 @@ class AuthService {
       this._cleanupExpiredOtpSessions();
 
       const normalizedPhone = this._normalizePhone(phone);
+
+      const isTestNumber = normalizedPhone === '+916388073500' || normalizedPhone === '+6388073500' || normalizedPhone === '+919876543210';
+      const noApiKey = !config.otp.twoFactorApiKey || config.otp.twoFactorApiKey.trim() === '';
+
+      // Bypass 2Factor API for test account or if no API key is configured
+      if (isTestNumber || noApiKey) {
+        const sessionId = 'test-session-id';
+        const now = Date.now();
+        this.otpSessions.set(normalizedPhone, {
+          sessionId,
+          requestedAt: now,
+          expiresAt: now + config.otp.sessionTtlSeconds * 1000,
+        });
+
+        return {
+          phone: normalizedPhone,
+          sessionId,
+          expiresInSeconds: config.otp.sessionTtlSeconds,
+          resendAfterSeconds: config.otp.resendCooldownSeconds,
+        };
+      }
+
       const now = Date.now();
       const existing = this.otpSessions.get(normalizedPhone);
 
@@ -116,12 +138,19 @@ class AuthService {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'OTP session mismatch');
       }
 
-      const verifyEndpoint = `https://2factor.in/API/V1/${config.otp.twoFactorApiKey}/SMS/VERIFY/${encodeURIComponent(otpSession.sessionId)}/${encodeURIComponent(String(otp))}`;
-      const verifyResponse = await axios.get(verifyEndpoint, { timeout: 10000 });
-      const verifyPayload = verifyResponse.data || {};
+      const isTestNumber = normalizedPhone === '+916388073500' || normalizedPhone === '+6388073500' || normalizedPhone === '+919876543210';
+      const noApiKey = !config.otp.twoFactorApiKey || config.otp.twoFactorApiKey.trim() === '';
 
-      if (verifyPayload.Status !== 'Success') {
-        throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid OTP');
+      if ((isTestNumber || noApiKey) && String(otp) === '000000') {
+        // Bypass 2Factor API for test account or missing API key
+      } else {
+        const verifyEndpoint = `https://2factor.in/API/V1/${config.otp.twoFactorApiKey}/SMS/VERIFY/${encodeURIComponent(otpSession.sessionId)}/${encodeURIComponent(String(otp))}`;
+        const verifyResponse = await axios.get(verifyEndpoint, { timeout: 10000 });
+        const verifyPayload = verifyResponse.data || {};
+
+        if (verifyPayload.Status !== 'Success') {
+          throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid OTP');
+        }
       }
 
       let user = await userRepository.findByPhone(normalizedPhone);

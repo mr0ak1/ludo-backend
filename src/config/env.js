@@ -33,6 +33,7 @@ module.exports = {
   nodeEnv: process.env.NODE_ENV || 'development',
   isDevelopment: process.env.NODE_ENV === 'development',
   isProduction: process.env.NODE_ENV === 'production',
+  isTest: process.env.NODE_ENV === 'test',
 
   // Database
   mongoUri: process.env.MONGO_URI,
@@ -91,4 +92,8 @@ module.exports = {
 
   // Environment
   environment: process.env.ENVIRONMENT || 'development',
+
+  // Admin Authentication
+  adminUsername: process.env.ADMIN_USERNAME || 'Ludo_King0101',
+  adminPassword: process.env.ADMIN_PASSWORD || 'Ludo_King0101',
 };

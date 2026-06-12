@@ -1,0 +1,1 @@
+require('dotenv').config(); const mongoose = require('mongoose'); const Game = require('./src/models/game.model'); async function check() { await mongoose.connect(process.env.MONGO_URI); const game = await Game.findOne({ _id: '10fb861bacaf42d4' }).catch(() => null); console.log('Game status:', game ? game.status : 'not found'); process.exit(0); } check();

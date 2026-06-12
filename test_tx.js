@@ -1,0 +1,1 @@
+const mongoose = require('mongoose'); require('dotenv').config(); mongoose.connect(process.env.MONGO_URI).then(async () => { const db = mongoose.connection.db; const types = await db.collection('transactions').distinct('type'); console.log('Types:', types); process.exit(0); });

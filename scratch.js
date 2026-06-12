@@ -1,0 +1,1 @@
+const mongoose = require('mongoose'); mongoose.connect('mongodb://localhost:27017/ludo_game').then(async () => { const Notification = mongoose.model('Notification', new mongoose.Schema({}, {strict: false, collection: 'notifications'})); const n = await Notification.find({ type: 'system_alert' }).sort({_id:-1}).limit(1); console.log(JSON.stringify(n, null, 2)); process.exit(0); })

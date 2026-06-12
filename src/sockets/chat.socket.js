@@ -34,6 +34,11 @@ const chatSocket = (socket, io) => {
         return;
       }
 
+      if (socket.userId && userId !== socket.userId) {
+        _socketError(socket, 'Access Denied: Identity mismatch');
+        return;
+      }
+
       await chatService.sendUserMessage(io, {
         gameId,
         userId,
@@ -51,6 +56,11 @@ const chatSocket = (socket, io) => {
       const { gameId, userId, page, limit } = data || {};
       if (!gameId || !userId) {
         _socketError(socket, 'gameId and userId are required');
+        return;
+      }
+
+      if (socket.userId && userId !== socket.userId) {
+        _socketError(socket, 'Access Denied: Identity mismatch');
         return;
       }
 
@@ -87,6 +97,11 @@ const chatSocket = (socket, io) => {
       const { gameId, userId, playerName, typing } = data || {};
       if (!gameId || !userId) {
         _socketError(socket, 'gameId and userId are required');
+        return;
+      }
+
+      if (socket.userId && userId !== socket.userId) {
+        _socketError(socket, 'Access Denied: Identity mismatch');
         return;
       }
 

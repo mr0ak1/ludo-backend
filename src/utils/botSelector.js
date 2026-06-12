@@ -68,16 +68,23 @@ async function selectRandomBots(count = 1, level = 'easy') {
 /**
  * Create bot player object for game
  * Mimics real player structure to hide bot identity
- * @param {Object} bot - Bot user document
+ * @param {Object} bot - Bot user document (with assigned name)
  * @param {Number} position - Player position (0-3)
+ * @param {String} difficulty - Intended bot difficulty
  * @returns {Object} Player object for game
  */
-function createBotPlayerObject(bot, position) {
+function createBotPlayerObject(bot, position, difficulty) {
+  const colors = ['red', 'green', 'yellow', 'blue'];
+  const color = colors[position];
+  
   return {
     userId: bot._id.toString(),
     position,
+    playerColor: color,
+    preferredColor: color,
     isBot: true,
-    botDifficulty: bot.botLevel || 'easy',
+    playerName: bot.name, // Use randomly-assigned bot name from selectRandomBots
+    botDifficulty: difficulty || bot.botLevel || 'easy',
     tokens: [
       { position: -1, active: false },
       { position: -1, active: false },

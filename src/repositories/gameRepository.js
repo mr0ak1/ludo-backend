@@ -2,6 +2,7 @@ const mongoose = require('mongoose');
 const Game = require('../models/game.model');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
+const { GAME_STATUS } = require('../constants/game.constants');
 const logger = require('../utils/logger');
 
 function _getQuery(gameId) {
@@ -55,7 +56,7 @@ class GameRepository {
     try {
       const game = await Game.findOne({
         'players.userId': userId,
-        status: 'ongoing',
+        status: GAME_STATUS.ACTIVE,
       }).populate('players.userId');
 
       return game;
@@ -71,18 +72,23 @@ class GameRepository {
    * @param {Object} pagination - Pagination options
    * @returns {Promise<Array>} Games list
    */
-  async findByStatus(status, pagination = {}) {
+  async findByStatus(status, pagination = {}, filters = {}) {
     try {
       const { page = 1, limit = 20 } = pagination;
       const skip = (page - 1) * limit;
 
-      const games = await Game.find({ status })
+      const query = { ...filters };
+      if (status && status !== 'all') {
+        query.status = status;
+      }
+
+      const games = await Game.find(query)
         .skip(skip)
         .limit(limit)
         .populate('players.userId')
         .sort({ createdAt: -1 });
 
-      const total = await Game.countDocuments({ status });
+      const total = await Game.countDocuments(query);
 
       return {
         games,
@@ -90,7 +96,7 @@ class GameRepository {
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit),
+          pages: Math.ceil(total / limit) || 1,
         },
       };
     } catch (error) {
@@ -110,7 +116,7 @@ class GameRepository {
       const skip = (page - 1) * limit;
 
       const games = await Game.find({
-        status: 'waiting',
+        status: GAME_STATUS.PENDING,
         $expr: { $lt: [{ $size: '$players' }, '$maxPlayers'] },
       })
         .skip(skip)
@@ -119,7 +125,7 @@ class GameRepository {
         .sort({ createdAt: -1 });
 
       const total = await Game.countDocuments({
-        status: 'waiting',
+        status: GAME_STATUS.PENDING,
         $expr: { $lt: [{ $size: '$players' }, '$maxPlayers'] },
       });
 
@@ -151,7 +157,7 @@ class GameRepository {
 
       const games = await Game.find({
         'players.userId': userId,
-        status: { $in: ['completed', 'surrendered'] },
+        status: { $in: [GAME_STATUS.COMPLETED, GAME_STATUS.SURRENDERED] },
       })
         .skip(skip)
         .limit(limit)
@@ -160,7 +166,7 @@ class GameRepository {
 
       const total = await Game.countDocuments({
         'players.userId': userId,
-        status: { $in: ['completed', 'surrendered'] },
+        status: { $in: [GAME_STATUS.COMPLETED, GAME_STATUS.SURRENDERED] },
       });
 
       return {
@@ -227,7 +233,7 @@ class GameRepository {
 
       // Start game when the configured player count is reached
       if (game.players.length === game.maxPlayers) {
-        game.status = 'ongoing';
+        game.status = GAME_STATUS.ACTIVE;
         if (!game.startTime) {
           game.startTime = new Date();
           game.turnStartedAt = new Date();
@@ -379,7 +385,7 @@ class GameRepository {
         _getQuery(gameId),
         {
           $set: {
-            status: 'completed',
+            status: GAME_STATUS.COMPLETED,
             endTime: new Date(),
             results,
           },
@@ -413,7 +419,7 @@ class GameRepository {
         _getQuery(gameId),
         {
           $set: {
-            status: 'surrendered',
+            status: GAME_STATUS.SURRENDERED,
             endTime: new Date(),
             'results.surrenderedBy': userId,
           },
@@ -464,17 +470,17 @@ class GameRepository {
     try {
       const completedGames = await Game.countDocuments({
         'players.userId': userId,
-        status: 'completed',
+        status: GAME_STATUS.COMPLETED,
       });
 
       const winCount = await Game.countDocuments({
         'results.winner': userId,
-        status: 'completed',
+        status: GAME_STATUS.COMPLETED,
       });
 
       const surrenderedCount = await Game.countDocuments({
         'players.userId': userId,
-        status: 'surrendered',
+        status: GAME_STATUS.SURRENDERED,
       });
 
       return {
@@ -501,7 +507,7 @@ class GameRepository {
       const { limit = 50 } = pagination;
 
       const leaderboard = await Game.aggregate([
-        { $match: { status: 'completed' } },
+        { $match: { status: GAME_STATUS.COMPLETED } },
         { $group: { _id: '$results.winner', wins: { $sum: 1 } } },
         { $sort: { wins: -1 } },
         { $limit: limit },
@@ -529,6 +535,60 @@ class GameRepository {
     } catch (error) {
       logger.error('Error getting leaderboard:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Count total games
+   * @returns {Promise<Number>} Total game count
+   */
+  async countAllGames() {
+    try {
+      return await Game.countDocuments();
+    } catch (error) {
+      logger.error('Error counting games:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get count of live playing human users
+   * @returns {Promise<Number>} Live players count
+   */
+  async getLivePlayingUsersCount() {
+    try {
+      const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+      const result = await Game.aggregate([
+        { $match: { status: GAME_STATUS.ACTIVE, updatedAt: { $gte: fifteenMinutesAgo } } },
+        { $unwind: '$players' },
+        { $match: { 'players.isBot': false } },
+        { $group: { _id: '$players.userId' } },
+        { $count: 'livePlayers' }
+      ]);
+      return result.length > 0 ? result[0].livePlayers : 0;
+    } catch (error) {
+      logger.error('Error getting live playing users count:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Get total gameplay amount for today
+   * @returns {Promise<Number>} Today's total bet amount
+   */
+  async getTodayGameplayAmount() {
+    try {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const result = await Game.aggregate([
+        { $match: { createdAt: { $gte: startOfDay } } },
+        { $group: { _id: null, totalAmount: { $sum: '$betAmount' } } }
+      ]);
+      return result.length > 0 ? result[0].totalAmount : 0;
+    } catch (error) {
+      logger.error('Error getting today gameplay amount:', error);
+      return 0;
     }
   }
 }

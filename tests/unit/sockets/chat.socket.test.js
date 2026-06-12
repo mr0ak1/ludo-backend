@@ -17,6 +17,7 @@ describe('Chat Socket', () => {
 
   beforeEach(() => {
     socket = {
+      userId: '507f1f77bcf86cd799439012',
       emit: jest.fn(),
       on: jest.fn((event, handler) => {
         socket[`_handler_${event}`] = handler;

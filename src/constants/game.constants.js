@@ -27,6 +27,7 @@ const GAME_STATUS = {
   COMPLETED: 'completed',
   CANCELLED: 'cancelled',
   RECONNECTING: 'reconnecting',
+  SURRENDERED: 'surrendered',
 };
 
 // Game Types
@@ -54,12 +55,19 @@ const PLAYER_STARTING_ZONES = {
 
 // Game Rules
 const RULES = {
-  MAX_PLAYERS: 2,
+  MAX_PLAYERS: 4,
   MIN_PLAYERS: 2,
+  CASH_MAX_PLAYERS: 2,
+  PRACTICE_MAX_PLAYERS: 4,
   TURN_TIMEOUT_MS: 20000, // 20 seconds
   MOVE_VALIDATION_STRICT: true,
   ALLOW_KILL_IN_SAFE_ZONE: false,
   REQUIRE_EXACT_DICE_FOR_HOME: true,
+};
+
+const GAME_MODE_LIMITS = {
+  PRACTICE: RULES.PRACTICE_MAX_PLAYERS,
+  CASH: RULES.CASH_MAX_PLAYERS,
 };
 
 // Winner Detection
@@ -92,6 +100,7 @@ module.exports = {
   TOKEN_COLORS,
   PLAYER_STARTING_ZONES,
   RULES,
+  GAME_MODE_LIMITS,
   WINNER_CONDITION,
   BOARD_LAYOUT,
 };

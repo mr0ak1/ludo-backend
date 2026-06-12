@@ -26,7 +26,7 @@ describe('Bot Chat Service', () => {
       const game = {
         _id: 'game123',
         gameType: 'cash',
-        status: 'ongoing',
+        status: 'active',
         players: [
           { userId: 'user1', playerName: 'Player1', isBot: false },
           {
@@ -91,7 +91,7 @@ describe('Bot Chat Service', () => {
       const game = {
         _id: 'game789',
         gameType: 'practice',
-        status: 'ongoing',
+        status: 'active',
         players: [
           { userId: 'user1', playerName: 'Player1', isBot: false },
           {
@@ -158,7 +158,7 @@ describe('Bot Chat Service', () => {
       const game = {
         _id: 'game123',
         gameType: 'cash',
-        status: 'ongoing',
+        status: 'active',
         players: [
           { userId: 'user1', playerName: 'Player1', isBot: false },
           {

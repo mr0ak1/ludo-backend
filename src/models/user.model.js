@@ -103,6 +103,19 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    isWithdrawDisabled: {
+      type: Boolean,
+      default: false,
+    },
+    isGameplayDisabled: {
+      type: Boolean,
+      default: false,
+    },
+    isAdmin: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     lastActive: {
       type: Date,
       default: Date.now,

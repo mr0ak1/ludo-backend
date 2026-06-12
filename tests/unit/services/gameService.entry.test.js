@@ -1,3 +1,8 @@
+// Mock ProbabilityConfig to avoid DB calls during tests
+jest.mock('../../../src/models/probabilityConfig.model', () => ({
+  findOne: jest.fn().mockResolvedValue(null),
+}));
+
 const gameService = require('../../../src/services/gameService');
 
 // Mock dependencies
@@ -43,9 +48,12 @@ describe('GameService - Cash Game Entry', () => {
 
     const game = await gameService.createCashGame(userId, entryFee, 4);
 
+    const entryGameId = walletService.processGameEntry.mock.calls[0][2];
+    const createdGameData = gameRepository.create.mock.calls[0][0];
+
     expect(userRepository.findById).toHaveBeenCalledWith(userId);
-    expect(walletService.processGameEntry).toHaveBeenCalledWith(userId, entryFee, null);
-    expect(gameRepository.create).toHaveBeenCalled();
+    expect(walletService.processGameEntry).toHaveBeenCalledWith(userId, entryFee, entryGameId);
+    expect(createdGameData).toEqual(expect.objectContaining({ gameId: entryGameId }));
     expect(game).toBe(createdGame);
   });
 

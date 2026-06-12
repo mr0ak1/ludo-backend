@@ -1,0 +1,1 @@
+const mongoose = require('mongoose'); const config = require('./src/config/env'); mongoose.connect(config.mongoUri).then(async () => { const MatchHistory = require('./src/models/matchHistory.model'); const h = await MatchHistory.find().sort({createdAt: -1}).limit(1); console.log(JSON.stringify(h, null, 2)); process.exit(0); });

@@ -73,8 +73,25 @@ const registerDevice = async (req, res, next) => {
   }
 };
 
+/**
+ * GET /api/v1/notification/latest-popup
+ */
+const getLatestPopup = async (req, res, next) => {
+  try {
+    const Popup = require('../models/popup.model');
+    const latestPopup = await Popup.findOne({ isActive: true }).sort({ createdAt: -1 });
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Latest popup retrieved', { popup: latestPopup })
+    );
+  } catch (err) {
+    next(err);
+  }
+};
+
 module.exports = {
   getNotifications,
   markAsRead,
   registerDevice,
+  getLatestPopup,
 };

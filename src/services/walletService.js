@@ -243,6 +243,53 @@ class WalletService {
   }
 
   /**
+   * Request withdrawal (User)
+   * @param {String} userId - User ID
+   * @param {Number} amount - Amount to withdraw
+   * @param {String} paymentMethod - Target method
+   */
+  async requestWithdrawal(userId, amount, paymentMethod) {
+    try {
+      const user = await userRepository.findById(userId);
+      if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
+
+      let wallet = await walletRepository.findByUserId(userId);
+      if (!wallet || wallet.coins < amount) {
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Insufficient coins');
+      }
+
+      if (wallet.isLocked) {
+        throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Wallet is locked: ' + wallet.lockedReason);
+      }
+
+      const previousBalance = wallet.coins;
+
+      // Deduct coins pending approval
+      const updatedWallet = await walletRepository.deductCoins(userId, amount, 'Withdrawal request');
+
+      // Log transaction as pending withdrawal
+      const tx = await transactionRepository.create({
+        userId,
+        type: 'withdrawal',
+        amount: -amount,
+        reason: 'Withdrawal to ' + paymentMethod,
+        beforeBalance: previousBalance,
+        afterBalance: updatedWallet.coins,
+        status: 'pending',
+        metadata: { paymentMethod }
+      });
+
+      logger.info(`User ${userId} requested withdrawal of ${amount}`);
+
+      return { wallet: updatedWallet, transaction: tx };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      logger.error('Error requesting withdrawal:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Freeze wallet (prevent transactions)
    * @param {String} userId - User ID
    * @param {String} reason - Freeze reason
@@ -311,7 +358,39 @@ class WalletService {
 
       // Check if wallet is locked
       if (wallet.isLocked) {
-        throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
+        // Extract the locked game's ID from the reason string, e.g. "Game in progress: abc123"
+        const lockedGameIdMatch = wallet.lockedReason
+          ? wallet.lockedReason.match(/Game in progress[:\s]+([a-f0-9A-F]{24}|[a-f0-9]{16})/i)
+          : null;
+        const lockedGameId = lockedGameIdMatch ? lockedGameIdMatch[1] : null;
+
+        if (lockedGameId) {
+          // Check if that game is still active
+          try {
+            const gameRepository = require('../repositories/gameRepository');
+            const lockedGame = await gameRepository.findById(lockedGameId);
+            const isStillActive = lockedGame && lockedGame.status === 'active';
+
+            if (!isStillActive) {
+              // Game is gone or ended — stale lock, auto-unlock and proceed
+              logger.warn(`Auto-unlocking stale wallet lock for user ${userId}. Locked game ${lockedGameId} is no longer active (status: ${lockedGame?.status ?? 'not found'}).`);
+              await walletRepository.unlockWallet(userId);
+              wallet = await walletRepository.findByUserId(userId, options);
+              // Fall through to process the entry normally
+            } else {
+              // Game is genuinely still running — block
+              throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
+            }
+          } catch (checkErr) {
+            if (checkErr instanceof ApiError) throw checkErr;
+            // If check itself fails, fall back to throwing 409 to be safe
+            logger.error('Error checking locked game status:', checkErr.message);
+            throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
+          }
+        } else {
+          // No game ID in reason — hard lock (admin freeze etc.)
+          throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
+        }
       }
 
       // Check sufficient balance
@@ -380,13 +459,14 @@ class WalletService {
 
       const previousBalance = wallet.coins;
 
-      // Add reward
-      const updatedWallet = await walletRepository.addCoins(userId, rewardAmount, `Game reward: ${gameId}`, options);
-
-      // Unlock wallet
+      // Unlock wallet BEFORE adding coins, because locked wallets reject coin additions
       await walletRepository.unlockWallet(userId, options);
 
-      // Log transaction
+      let updatedWallet = wallet;
+      // Add reward if applicable
+      if (rewardAmount > 0) {
+        updatedWallet = await walletRepository.addCoins(userId, rewardAmount, `Game reward: ${gameId}`, options);
+      }
       await transactionRepository.create({
         userId,
         type: 'game_reward',

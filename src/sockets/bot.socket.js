@@ -90,7 +90,7 @@ const botSocket = (socket, io) => {
       }
 
       // Get bot decision based on difficulty
-      const selectedMove = botService.decideMove(
+      const selectedMove = await botService.decideMove(
         game,
         botPlayerIndex,
         validMoves,

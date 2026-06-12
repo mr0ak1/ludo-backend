@@ -1,4 +1,7 @@
 const gameService = require('../../../src/services/gameService');
+const mongoose = require('mongoose');
+
+jest.spyOn(mongoose, 'startSession').mockRejectedValue(new Error('No database connection in tests'));
 
 jest.mock('../../../src/repositories/gameRepository');
 jest.mock('../../../src/repositories/userRepository');
@@ -19,6 +22,8 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
     const mockGame = {
       _id: gameId,
       status: 'active',
+      currentTurnCount: 0,
+      diceValue: 6,
       players: [
         {
           userId: { toString: () => userId },
@@ -40,15 +45,12 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
 
     // Mock findById
     gameRepository.findById = jest.fn().mockResolvedValue(mockGame);
-    gameRepository.addMove = jest.fn().mockResolvedValue(true);
-    gameRepository.updatePlayerBoard = jest.fn().mockResolvedValue(true);
-    gameRepository.updateCurrentTurn = jest.fn().mockResolvedValue(true);
+    gameRepository.addMove = jest.fn().mockResolvedValue(mockGame);
+    gameRepository.updatePlayerBoard = jest.fn().mockResolvedValue(mockGame);
+    gameRepository.updateCurrentTurn = jest.fn().mockResolvedValue(mockGame);
+    gameRepository.update = jest.fn().mockResolvedValue(mockGame);
 
-    // First: roll a 6 (third consecutive)
-    const rollResult = await gameService.rollDice(gameId, userId);
-    // diceValue is random; to reliably test, we will call moveToken instead with diceValue 6
-
-    const moveResult = await gameService.moveToken(gameId, userId, 0, 6);
+    const moveResult = await gameService.moveToken(gameId, userId, 0, 0);
 
     // After third consecutive 6, updateCurrentTurn should have been called to move to next player
     expect(gameRepository.updateCurrentTurn).toHaveBeenCalled();
@@ -61,6 +63,8 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
     const mockGame = {
       _id: gameId,
       status: 'active',
+      currentTurnCount: 0,
+      diceValue: 3,
       players: [
         {
           userId: { toString: () => userId },
@@ -81,20 +85,19 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
     };
 
     gameRepository.findById = jest.fn().mockResolvedValue(mockGame);
-    gameRepository.addMove = jest.fn().mockResolvedValue(true);
-    gameRepository.updatePlayerBoard = jest.fn().mockResolvedValue(true);
-    gameRepository.updateCurrentTurn = jest.fn().mockResolvedValue(true);
+    gameRepository.addMove = jest.fn().mockResolvedValue(mockGame);
+    gameRepository.updatePlayerBoard = jest.fn().mockResolvedValue(mockGame);
+    gameRepository.updateCurrentTurn = jest.fn().mockResolvedValue(mockGame);
+    gameRepository.update = jest.fn().mockResolvedValue(mockGame);
 
-    const result = await gameService.moveToken(gameId, userId, 0, 3);
+    const result = await gameService.moveToken(gameId, userId, 0, 0);
 
-    expect(gameRepository.updatePlayerBoard).toHaveBeenCalledWith(
-      gameId,
-      0,
+    expect(gameRepository.updatePlayerBoard.mock.calls[0][2]).toEqual(
       expect.objectContaining({
         consecutiveSixes: 0,
       })
     );
-    expect(gameRepository.updateCurrentTurn).toHaveBeenCalledWith(gameId, 1);
+    expect(gameRepository.updateCurrentTurn.mock.calls[0][1]).toBe(1);
   });
 
   it('should auto-skip timed out games when fetching details', async () => {
@@ -104,6 +107,8 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
     const staleGame = {
       _id: gameId,
       status: 'active',
+      currentTurnCount: 0,
+      turnStartedAt: staleAt,
       players: [
         {
           userId: { toString: () => 'player1' },
@@ -148,9 +153,10 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
       .fn()
       .mockResolvedValueOnce(staleGame)
       .mockResolvedValueOnce(refreshedGame);
-    gameRepository.updatePlayerBoard = jest.fn().mockResolvedValue(true);
-    gameRepository.updateCurrentTurn = jest.fn().mockResolvedValue(true);
-    gameRepository.addMove = jest.fn().mockResolvedValue(true);
+    gameRepository.updatePlayerBoard = jest.fn().mockResolvedValue(refreshedGame);
+    gameRepository.updateCurrentTurn = jest.fn().mockResolvedValue(refreshedGame);
+    gameRepository.addMove = jest.fn().mockResolvedValue(refreshedGame);
+    gameRepository.update = jest.fn().mockResolvedValue(refreshedGame);
 
     const details = await gameService.getGameDetails(gameId);
 

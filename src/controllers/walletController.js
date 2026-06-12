@@ -174,6 +174,34 @@ const getWalletStats = async (req, res, next) => {
   }
 };
 
+/**
+ * Request a withdrawal (User)
+ * POST /api/v1/wallet/request-withdrawal
+ */
+const requestWithdrawal = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    let { amount, paymentMethod } = req.body;
+    
+    amount = parseInt(amount, 10);
+
+    if (!amount || amount <= 0 || !Number.isInteger(amount)) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid withdrawal amount');
+    }
+    if (!paymentMethod) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Payment method required');
+    }
+
+    const result = await walletService.requestWithdrawal(userId, amount, paymentMethod);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Withdrawal request submitted successfully', result)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getWallet,
   getTransactionHistory,
@@ -182,4 +210,5 @@ module.exports = {
   freezeWallet,
   unfreezeWallet,
   getWalletStats,
+  requestWithdrawal,
 };

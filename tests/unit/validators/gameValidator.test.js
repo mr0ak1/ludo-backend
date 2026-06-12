@@ -18,10 +18,18 @@ describe('Game Validator Tests', () => {
     it('should validate cash game request', () => {
       const { error, value } = gameValidator.validateCreateCashGame({
         entryFee: 100,
-        maxPlayers: 4,
+        maxPlayers: 2,
       });
       expect(error).toBeUndefined();
       expect(value.entryFee).toBe(100);
+    });
+
+    it('should reject cash games above 2 players', () => {
+      const { error } = gameValidator.validateCreateCashGame({
+        entryFee: 100,
+        maxPlayers: 3,
+      });
+      expect(error).toBeDefined();
     });
 
     it('should reject missing entry fee', () => {
@@ -49,6 +57,7 @@ describe('Game Validator Tests', () => {
       const { error, value } = gameValidator.validateMoveToken({
         gameId: '507f1f77bcf86cd799439011',
         tokenIndex: 2,
+        turnVersion: 0,
       });
       expect(error).toBeUndefined();
       expect(value.tokenIndex).toBe(2);
@@ -58,6 +67,7 @@ describe('Game Validator Tests', () => {
       const { error } = gameValidator.validateMoveToken({
         gameId: '507f1f77bcf86cd799439011',
         tokenIndex: 4,
+        turnVersion: 0,
       });
       expect(error).toBeDefined();
     });
@@ -98,7 +108,8 @@ describe('Game Validator Tests', () => {
   describe('Enums', () => {
     it('should expose game types and status enums', () => {
       expect(gameValidator.GAME_TYPES.PRACTICE).toBe('practice');
-      expect(gameValidator.GAME_STATUS.ONGOING).toBe('ongoing');
+      expect(gameValidator.GAME_STATUS.ACTIVE).toBe('active');
+      expect(gameValidator.GAME_STATUS.SURRENDERED).toBe('surrendered');
     });
   });
 });

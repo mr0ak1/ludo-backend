@@ -35,7 +35,7 @@ router.get('/bot-difficulty', authMiddleware, matchmakingController.getBotDiffic
  * Set global bot difficulty for all users
  * Body: { difficulty: 'easy'|'medium'|'hard' }
  */
-router.post('/set-bot-difficulty', authMiddleware, adminMiddleware, (req, res, next) => {
+router.post('/set-bot-difficulty', authMiddleware, adminMiddleware, async (req, res, next) => {
   try {
     const matchmakingValidator = require('../validators/matchmakingValidator');
     const ApiError = require('../utils/ApiError');
@@ -50,7 +50,7 @@ router.post('/set-bot-difficulty', authMiddleware, adminMiddleware, (req, res, n
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    matchmakingService.setGlobalBotDifficulty(value.difficulty);
+    await matchmakingService.setGlobalBotDifficulty(value.difficulty);
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Bot difficulty updated', {
