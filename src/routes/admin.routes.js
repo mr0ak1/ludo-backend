@@ -146,6 +146,13 @@ router.post('/set-game-difficulty', authMiddleware, adminMiddleware, adminContro
 router.get('/get-difficulty', authMiddleware, adminMiddleware, adminController.getBotDifficulty);
 
 /**
+ * @route POST /admin/set-minimum-bet
+ * @desc Set minimum bet for cash games
+ * @access Private (Admin)
+ */
+router.post('/set-minimum-bet', authMiddleware, adminMiddleware, adminController.setMinimumBet);
+
+/**
  * @route GET /admin/revenue
  * @desc Get revenue analytics
  * @access Private (Admin)

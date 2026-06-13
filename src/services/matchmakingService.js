@@ -45,7 +45,13 @@ class MatchmakingService {
       this.globalBotDifficulty = difficulty;
       logger.info(`Global bot difficulty set to: ${difficulty}`);
       try {
-        await BotConfig.findOneAndUpdate({}, { globalDifficulty: difficulty }, { upsert: true });
+        let config = await BotConfig.findOne();
+        if (!config) {
+          config = new BotConfig({ globalDifficulty: difficulty });
+        } else {
+          config.globalDifficulty = difficulty;
+        }
+        await config.save();
       } catch (e) {
         logger.error('Failed to save globalBotDifficulty to DB:', e.message);
       }
@@ -68,7 +74,13 @@ class MatchmakingService {
     this.hardModeThreshold = amount;
     logger.info(`Auto hard mode threshold set to: ${amount}`);
     try {
-      await BotConfig.findOneAndUpdate({}, { hardModeThreshold: amount }, { upsert: true });
+      let config = await BotConfig.findOne();
+      if (!config) {
+        config = new BotConfig({ hardModeThreshold: amount });
+      } else {
+        config.hardModeThreshold = amount;
+      }
+      await config.save();
     } catch (e) {
       logger.error('Failed to save hardModeThreshold to DB:', e.message);
     }

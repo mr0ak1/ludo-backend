@@ -9,6 +9,10 @@ const botConfigSchema = new mongoose.Schema({
   hardModeThreshold: {
     type: Number,
     default: 450
+  },
+  minimumBet: {
+    type: Number,
+    default: 10
   }
 }, { timestamps: true });
 

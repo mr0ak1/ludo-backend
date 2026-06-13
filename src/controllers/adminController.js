@@ -918,11 +918,47 @@ const getBotDifficulty = async (req, res, next) => {
   try {
     const currentDifficulty = matchmakingService.getGlobalBotDifficulty();
     const hardModeThreshold = matchmakingService.getHardModeThreshold();
+    const BotConfig = require('../models/botConfig.model');
+    const config = await BotConfig.findOne();
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Current bot difficulty retrieved', {
         difficulty: currentDifficulty,
         hardModeThreshold: hardModeThreshold,
+        minimumBet: config && config.minimumBet !== undefined ? config.minimumBet : 10,
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Set minimum bet for cash games
+ * POST /admin/set-minimum-bet
+ */
+const setMinimumBet = async (req, res, next) => {
+  try {
+    const { minimumBet } = req.body;
+
+    if (minimumBet === undefined || typeof minimumBet !== 'number' || minimumBet < 0) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Minimum bet must be a positive number');
+    }
+
+    const BotConfig = require('../models/botConfig.model');
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = new BotConfig({ minimumBet });
+    } else {
+      config.minimumBet = minimumBet;
+    }
+    await config.save();
+
+    logger.info(`Minimum bet updated to: ${minimumBet} by admin`);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Minimum bet updated successfully', {
+        minimumBet: config.minimumBet,
       })
     );
   } catch (error) {
@@ -1384,6 +1420,7 @@ module.exports = {
   setHardModeThreshold,
   setGameDifficulty,
   getBotDifficulty,
+  setMinimumBet,
   getRevenue,
   getTransactionSummary,
   getLiveStats,

@@ -381,14 +381,28 @@ class GameRepository {
    */
   async completeGame(gameId, results, options = {}) {
     try {
+      const updateSet = {
+        status: GAME_STATUS.COMPLETED,
+        endTime: new Date(),
+        results,
+      };
+
+      if (results && results.winner) {
+        updateSet.winner = results.winner;
+      }
+      
+      if (results && results.players) {
+        updateSet.players = results.players;
+      }
+
+      if (results && results.status === 'surrendered') {
+         updateSet.status = GAME_STATUS.SURRENDERED;
+      }
+
       const game = await Game.findOneAndUpdate(
         _getQuery(gameId),
         {
-          $set: {
-            status: GAME_STATUS.COMPLETED,
-            endTime: new Date(),
-            results,
-          },
+          $set: updateSet,
           $inc: { currentTurnCount: 1 }
         },
         { new: true, ...options }

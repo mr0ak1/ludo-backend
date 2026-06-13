@@ -44,6 +44,14 @@ const createCashGame = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
+    const BotConfig = require('../models/botConfig.model');
+    const config = await BotConfig.findOne();
+    const minBet = config && config.minimumBet !== undefined ? config.minimumBet : 10;
+    
+    if (value.entryFee < minBet) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, `Minimum bet amount must be at least ${minBet}`);
+    }
+
     let globalDifficulty = matchmakingService.getGlobalBotDifficulty();
     
     // Auto hard mode logic based on threshold

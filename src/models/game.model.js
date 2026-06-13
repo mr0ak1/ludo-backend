@@ -60,6 +60,10 @@ const gameSchema = new mongoose.Schema(
           enum: ['easy', 'medium', 'hard', null],
           default: null,
         },
+        placement: {
+          type: Number,
+          default: null,
+        },
         joinedAt: Date,
         disconnectedAt: {
           type: Date,
@@ -94,6 +98,10 @@ const gameSchema = new mongoose.Schema(
     winner: {
       type: mongoose.Schema.Types.ObjectId,
       default: null,
+    },
+    results: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {},
     },
     betAmount: {
       type: Number,

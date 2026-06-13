@@ -721,11 +721,24 @@ class GameService {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
       }
 
-      await gameRepository.completeGame(gameId, results, { session: sess });
-
       const winnerStr = toUserIdString(results.winner);
       const entryFee = game.betAmount || game.entryFee || 0;
       const numPlayers = game.players.length;
+      const n = game.players.length;
+      const winIdx = game.players.findIndex((p) => toUserIdString(p.userId) === winnerStr);
+
+      const playersLean = game.players.map(p => {
+        return typeof p.toObject === 'function' ? p.toObject() : { ...p };
+      });
+
+      playersLean.forEach((p, idx) => {
+        p.placement = winIdx >= 0 ? ((idx - winIdx + n) % n) + 1 : idx + 1;
+      });
+
+      results.players = playersLean;
+      results.winner = winnerStr;
+
+      await gameRepository.completeGame(gameId, results, { session: sess });
 
       // REWARD FORMULA:
       // Winner gets their own entry fee back + 90% of opponent's entry fee
@@ -744,8 +757,6 @@ class GameService {
 
       const playerIds = game.players.map((p) => toUserIdString(p.userId));
       const isBotMap = await userRepository.getIsBotMapByIds(playerIds);
-      const n = game.players.length;
-      const winIdx = game.players.findIndex((p) => toUserIdString(p.userId) === winnerStr);
 
       const participants = game.players.map((p, idx) => {
         const uid = toUserIdString(p.userId);
@@ -1945,11 +1956,13 @@ class GameService {
           tokens: p.tokens,
           isHome: (p.isHome && p.isHome.length === 4) ? p.isHome : p.tokens.map(t => t.position === 56),
           consecutiveSixes: p.consecutiveSixes,
+          placement: p.placement !== undefined ? p.placement : null,
         };
       }),
       diceValue: game.diceValue || 0,
       validMoves: validMoves,
       turnVersion: game.currentTurnCount,
+      winnerId: game.winner ? toUserIdString(game.winner) : (game.results?.winner || null),
       moves: game.moves,
       startTime: game.startTime,
       endTime: game.endTime,

@@ -19,11 +19,11 @@ requiredEnvVars.forEach((envVar) => {
 });
 
 // OTP API key is required in production but optional for local/dev setups.
-if (process.env.NODE_ENV === 'production' && !process.env.OTP_2FACTOR_API_KEY) {
-  throw new Error('Missing required environment variable: OTP_2FACTOR_API_KEY');
-} else if (!process.env.OTP_2FACTOR_API_KEY) {
+if (process.env.NODE_ENV === 'production' && !process.env.OTP_API_KEY) {
+  throw new Error('Missing required environment variable: OTP_API_KEY');
+} else if (!process.env.OTP_API_KEY) {
   // eslint-disable-next-line no-console
-  console.warn('Warning: OTP_2FACTOR_API_KEY is not set — OTP provider will be disabled in non-production environment.');
+  console.warn('Warning: OTP_API_KEY is not set — OTP provider will be disabled in non-production environment.');
 }
 
 module.exports = {
@@ -44,7 +44,7 @@ module.exports = {
 
   // OTP
   otp: {
-    twoFactorApiKey: process.env.OTP_2FACTOR_API_KEY,
+    apiKey: process.env.OTP_API_KEY,
     countryCode: process.env.OTP_COUNTRY_CODE || '91',
     resendCooldownSeconds: parseInt(process.env.OTP_RESEND_COOLDOWN_SECONDS, 10) || 60,
     sessionTtlSeconds: parseInt(process.env.OTP_SESSION_TTL_SECONDS, 10) || 300,

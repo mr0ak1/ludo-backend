@@ -20,14 +20,14 @@ const logger = winston.createLogger({
     new winston.transports.File({
       filename: 'src/logs/combined.log',
     }),
+    new winston.transports.Console({
+      format: winston.format.combine(
+        winston.format.colorize(),
+        winston.format.simple()
+      )
+    }),
   ],
 });
-
-// Disable console logs completely
-console.log = function() {};
-console.info = function() {};
-console.warn = function() {};
-console.error = function() {};
 
 // Log levels: error, warn, info, http, debug
 const log = {

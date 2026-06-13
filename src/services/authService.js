@@ -14,6 +14,11 @@ class AuthService {
     this.otpSessions = new Map();
   }
 
+  _buildDvHostingSmsSendUrl(phone, otp) {
+    const digits = String(phone).replace(/\D/g, '').slice(-10); // Extract 10-digit mobile
+    return `https://dvhosting.in/api-sms-v3.php?api_key=${config.otp.apiKey}&number=${digits}&otp=${otp}`;
+  }
+
   _normalizePhone(phone) {
     const raw = String(phone || '').trim();
     if (!raw) return '';
@@ -39,7 +44,7 @@ class AuthService {
   }
 
   /**
-   * Send OTP via 2Factor
+   * Send OTP via DV Hosting
    * @param {String} phone - User phone in E.164
    * @returns {Promise<Object>}
    */
@@ -50,14 +55,18 @@ class AuthService {
       const normalizedPhone = this._normalizePhone(phone);
 
       const isTestNumber = normalizedPhone === '+916388073500' || normalizedPhone === '+6388073500' || normalizedPhone === '+919876543210';
-      const noApiKey = !config.otp.twoFactorApiKey || config.otp.twoFactorApiKey.trim() === '';
+      const noApiKey = !config.otp.apiKey || config.otp.apiKey.trim() === '';
 
-      // Bypass 2Factor API for test account or if no API key is configured
+      // Generate 6-digit OTP locally
+      const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      const sessionId = crypto.randomBytes(16).toString('hex'); // Mock session ID for frontend compatibility
+
+      // Bypass SMS API for test account or if no API key is configured
       if (isTestNumber || noApiKey) {
-        const sessionId = 'test-session-id';
         const now = Date.now();
         this.otpSessions.set(normalizedPhone, {
           sessionId,
+          otp: isTestNumber ? '000000' : generatedOtp,
           requestedAt: now,
           expiresAt: now + config.otp.sessionTtlSeconds * 1000,
         });
@@ -86,18 +95,18 @@ class AuthService {
         );
       }
 
-      const endpoint = `https://2factor.in/API/V1/${config.otp.twoFactorApiKey}/SMS/${encodeURIComponent(normalizedPhone)}/AUTOGEN`;
+      const endpoint = this._buildDvHostingSmsSendUrl(normalizedPhone, generatedOtp);
+      logger.info(`[OTP] Sending OTP via DV Hosting to ${normalizedPhone}`);
+      logger.info(`[OTP] Generated OTP: ${generatedOtp}`);
+      
       const response = await axios.get(endpoint, { timeout: 10000 });
-      const payload = response.data || {};
+      // DV Hosting usually returns success JSON or text, depending on the response we just log it
+      logger.info(`[OTP] DV Hosting API Status Code: ${response.status}`);
+      logger.info(`[OTP] DV Hosting SMS response data: ${JSON.stringify(response.data)}`);
 
-      if (payload.Status !== 'Success' || !payload.Details) {
-        logger.error('2Factor send OTP failed:', payload);
-        throw new ApiError(HTTP_STATUS.BAD_GATEWAY, 'Failed to send OTP');
-      }
-
-      const sessionId = String(payload.Details);
       this.otpSessions.set(normalizedPhone, {
         sessionId,
+        otp: generatedOtp,
         requestedAt: now,
         expiresAt: now + config.otp.sessionTtlSeconds * 1000,
       });
@@ -110,7 +119,11 @@ class AuthService {
       };
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      logger.error('Error sending OTP:', error.message);
+      
+      logger.error(`[OTP] Error sending OTP via DV Hosting: ${error.message}`);
+      if (error.response) {
+        logger.error(`[OTP] DV Hosting API Error Data: ${JSON.stringify(error.response.data)}`);
+      }
       throw new ApiError(HTTP_STATUS.BAD_GATEWAY, 'Unable to send OTP right now');
     }
   }
@@ -138,20 +151,13 @@ class AuthService {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'OTP session mismatch');
       }
 
-      const isTestNumber = normalizedPhone === '+916388073500' || normalizedPhone === '+6388073500' || normalizedPhone === '+919876543210';
-      const noApiKey = !config.otp.twoFactorApiKey || config.otp.twoFactorApiKey.trim() === '';
-
-      if ((isTestNumber || noApiKey) && String(otp) === '000000') {
-        // Bypass 2Factor API for test account or missing API key
-      } else {
-        const verifyEndpoint = `https://2factor.in/API/V1/${config.otp.twoFactorApiKey}/SMS/VERIFY/${encodeURIComponent(otpSession.sessionId)}/${encodeURIComponent(String(otp))}`;
-        const verifyResponse = await axios.get(verifyEndpoint, { timeout: 10000 });
-        const verifyPayload = verifyResponse.data || {};
-
-        if (verifyPayload.Status !== 'Success') {
-          throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid OTP');
-        }
+      // Verify locally generated OTP
+      if (String(otpSession.otp) !== String(otp)) {
+        logger.warn(`[OTP] Invalid OTP attempt for ${normalizedPhone}. Expected: ${otpSession.otp}, Got: ${otp}`);
+        throw new ApiError(HTTP_STATUS.UNAUTHORIZED, 'Invalid OTP');
       }
+
+      logger.info(`[OTP] OTP successfully verified for ${normalizedPhone}`);
 
       let user = await userRepository.findByPhone(normalizedPhone);
       const welcomeBonus = Number(config.welcomeBonus);
