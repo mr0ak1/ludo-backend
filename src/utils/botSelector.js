@@ -118,6 +118,7 @@ async function ensureBotsExist() {
     const botsToCreate = [
       {
         phone: 'bot.easy.1@game.local',
+        email: 'bot.easy.1@game.local',
         firebaseUid: 'bot_easy_1_' + Date.now(),
         name: 'Bot Easy 1',
         isBot: true,
@@ -126,6 +127,7 @@ async function ensureBotsExist() {
       },
       {
         phone: 'bot.easy.2@game.local',
+        email: 'bot.easy.2@game.local',
         firebaseUid: 'bot_easy_2_' + Date.now(),
         name: 'Bot Easy 2',
         isBot: true,
@@ -134,6 +136,7 @@ async function ensureBotsExist() {
       },
       {
         phone: 'bot.medium.1@game.local',
+        email: 'bot.medium.1@game.local',
         firebaseUid: 'bot_medium_1_' + Date.now(),
         name: 'Bot Medium 1',
         isBot: true,
@@ -142,6 +145,7 @@ async function ensureBotsExist() {
       },
       {
         phone: 'bot.hard.1@game.local',
+        email: 'bot.hard.1@game.local',
         firebaseUid: 'bot_hard_1_' + Date.now(),
         name: 'Bot Hard 1',
         isBot: true,
@@ -150,6 +154,7 @@ async function ensureBotsExist() {
       },
       {
         phone: 'bot.hard.2@game.local',
+        email: 'bot.hard.2@game.local',
         firebaseUid: 'bot_hard_2_' + Date.now(),
         name: 'Bot Hard 2',
         isBot: true,

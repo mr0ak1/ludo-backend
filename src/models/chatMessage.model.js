@@ -3,8 +3,7 @@ const mongoose = require('mongoose');
 const chatMessageSchema = new mongoose.Schema(
   {
     gameId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Game',
+      type: String,
       required: true,
       index: true,
     },

@@ -46,7 +46,8 @@ const initializeGameWorkers = (gameService) => {
   const worker = new Worker(
     GAME_QUEUE_NAME,
     async (job) => {
-      const { type, gameId, userId } = job.data;
+      const type = job.name;
+      const { gameId, userId } = job.data;
       logger.info(`Processing queue job: ${type} for game ${gameId}`);
 
       try {
