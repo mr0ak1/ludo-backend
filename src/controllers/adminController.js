@@ -1586,12 +1586,13 @@ const getReferralConfig = async (req, res, next) => {
       config = await BotConfig.create({});
     }
     
-    res.status(HTTP_STATUS.OK).json(
-      new ApiResponse(HTTP_STATUS.OK, 'Referral config retrieved', {
-        referrerBonus: config.referrerBonus,
-        referredBonus: config.referredBonus
-      })
-    );
+      res.status(HTTP_STATUS.OK).json(
+        new ApiResponse(HTTP_STATUS.OK, 'Referral config retrieved', {
+          referrerBonus: config.referrerBonus,
+          referredBonus: config.referredBonus,
+          signUpBonus: config.signUpBonus
+        })
+      );
   } catch (error) {
     next(error);
   }
@@ -1607,15 +1608,17 @@ const setReferralConfig = async (req, res, next) => {
     
     if (referrerBonus !== undefined) config.referrerBonus = Number(referrerBonus);
     if (referredBonus !== undefined) config.referredBonus = Number(referredBonus);
+    if (req.body.signUpBonus !== undefined) config.signUpBonus = Number(req.body.signUpBonus);
     
     await config.save();
     
-    res.status(HTTP_STATUS.OK).json(
-      new ApiResponse(HTTP_STATUS.OK, 'Referral config updated successfully', {
-        referrerBonus: config.referrerBonus,
-        referredBonus: config.referredBonus
-      })
-    );
+      res.status(HTTP_STATUS.OK).json(
+        new ApiResponse(HTTP_STATUS.OK, 'Referral config updated successfully', {
+          referrerBonus: config.referrerBonus,
+          referredBonus: config.referredBonus,
+          signUpBonus: config.signUpBonus
+        })
+      );
   } catch (error) {
     next(error);
   }

@@ -55,6 +55,7 @@ async function migrate() {
         minimumBet: 10,
         referrerBonus: 50,
         referredBonus: 0,
+        signUpBonus: 10,
         paymentGatewayKey: '',
         upiId: '',
         paytmMerchantId: '',

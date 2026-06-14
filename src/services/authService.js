@@ -160,9 +160,12 @@ class AuthService {
       logger.info(`[OTP] OTP successfully verified for ${normalizedPhone}`);
 
       let user = await userRepository.findByPhone(normalizedPhone);
-      const welcomeBonus = Number(config.welcomeBonus);
-      const initialCoins = Number.isFinite(welcomeBonus) && welcomeBonus >= 0
-        ? welcomeBonus
+      const BotConfig = require('../models/botConfig.model');
+      let configObj = await BotConfig.findOne();
+      const signUpBonus = configObj?.signUpBonus !== undefined ? configObj.signUpBonus : Number(config.welcomeBonus);
+      
+      const initialCoins = Number.isFinite(signUpBonus) && signUpBonus >= 0
+        ? signUpBonus
         : config.defaultCoins;
       const isNewUser = !user;
 
@@ -194,8 +197,6 @@ class AuthService {
         logger.info(`New OTP user created: ${user.id}`);
 
         if (referringUser) {
-          const BotConfig = require('../models/botConfig.model');
-          let configObj = await BotConfig.findOne();
           const referrerBonusAmount = configObj?.referrerBonus ?? 50;
           const referredBonusAmount = configObj?.referredBonus ?? 0;
           

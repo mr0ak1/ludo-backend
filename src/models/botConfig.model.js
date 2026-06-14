@@ -30,6 +30,10 @@ BotConfig.init(
       type: DataTypes.INTEGER,
       defaultValue: 0,
     },
+    signUpBonus: {
+      type: DataTypes.INTEGER,
+      defaultValue: 10,
+    },
     paymentGatewayKey: {
       type: DataTypes.STRING(255),
       defaultValue: '',
