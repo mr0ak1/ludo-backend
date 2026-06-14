@@ -16,7 +16,8 @@ const { generateToken } = require('../utils/generateToken');
 const gameEvents = require('../utils/gameEvents');
 const { SOCKET_EVENTS_SERVER_TO_CLIENT } = require('../constants/socket.constants');
 const { TOKEN_COLORS, RANK_POINTS_LOSS } = require('../constants/stats.constants');
-const mongoose = require('mongoose');
+const { Op } = require('sequelize');
+const { sequelize } = require('../config/db');
 /**
  * Admin login with username and password
  * POST /admin/login
@@ -44,7 +45,7 @@ const adminLogin = async (req, res, next) => {
       // Create admin user if doesn't exist
       const User = require('../models/user.model');
       
-      admin = new User({
+      admin = await User.create({
         phone: `+919${Math.floor(Math.random() * 1000000000)}`,
         name: 'Ludo Admin',
         email: 'admin@ludo.test',
@@ -52,8 +53,7 @@ const adminLogin = async (req, res, next) => {
         coins: 10000,
       });
 
-      await admin.save();
-      admin = admin.toObject();
+      admin = admin.toJSON();
       logger.info('Admin user created for login');
     }
 
@@ -145,7 +145,7 @@ const getAllUsers = async (req, res, next) => {
     // Fetch actual wallet balances
     const userIds = result.users.map(u => u._id);
     const Wallet = require('../models/wallet.model');
-    const wallets = await Wallet.find({ userId: { $in: userIds } });
+    const wallets = await Wallet.findAll({ where: { userId: { [Op.in]: userIds } } });
     const walletMap = {};
     wallets.forEach(w => { walletMap[w.userId.toString()] = w.coins; });
 
@@ -226,48 +226,70 @@ const getAllWithdrawals = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const { search } = req.query;
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
     const Transaction = require('../models/transaction.model');
-    // Only fetch pending withdrawal requests
-    const query = { type: 'withdrawal' }; if (req.query.status === 'history') { query.status = { $in: ['completed', 'failed', 'rejected', 'refunded'] }; } else if (req.query.status) { query.status = req.query.status; } else { query.status = 'pending'; }
-    
+    const User = require('../models/user.model');
+
+    const where = { type: 'withdrawal' };
+    if (req.query.status === 'history') {
+      where.status = { [Op.in]: ['completed', 'failed', 'rejected', 'refunded'] };
+    } else if (req.query.status) {
+      where.status = req.query.status;
+    } else {
+      where.status = 'pending';
+    }
+
     if (search) {
-      const User = require('../models/user.model');
-      const searchRegex = new RegExp(search, 'i');
-      const users = await User.find({
-        $or: [
-          { name: searchRegex },
-          { phone: searchRegex },
-          { email: searchRegex }
-        ]
-      }).select('_id');
-      const userIds = users.map(u => u._id);
-      
-      query.$or = [
-        { userId: { $in: userIds } },
-        { reason: searchRegex },
-        { transactionId: searchRegex }
+      const users = await User.findAll({
+        where: {
+          [Op.or]: [
+            { name: { [Op.like]: `%${search}%` } },
+            { phone: { [Op.like]: `%${search}%` } },
+            { email: { [Op.like]: `%${search}%` } },
+          ],
+        },
+        attributes: ['id'],
+      });
+      const userIds = users.map(u => u.id);
+
+      where[Op.or] = [
+        { userId: { [Op.in]: userIds } },
+        { reason: { [Op.like]: `%${search}%` } },
+        { transactionId: { [Op.like]: `%${search}%` } },
       ];
     }
-    
-    const withdrawals = await Transaction.find(query)
-      .populate('userId', 'name phone email avatar')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
 
-    const total = await Transaction.countDocuments(query);
+    const { count, rows } = await Transaction.findAndCountAll({
+      where,
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['name', 'phone', 'email', 'avatar'],
+      }],
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset,
+    });
 
-    const ApiResponse = require('../utils/apiResponse');
+    const withdrawalsMapped = rows.map(w => {
+      const json = w.toJSON();
+      const userObj = json.user;
+      delete json.user;
+      return {
+        ...json,
+        userId: userObj,
+      };
+    });
+
     res.status(200).json(
       new ApiResponse(200, 'All withdrawals retrieved', {
-        withdrawals,
+        withdrawals: withdrawalsMapped,
         pagination: {
           page,
           limit,
-          total,
-          pages: Math.ceil(total / limit),
+          total: count,
+          pages: Math.ceil(count / limit) || 1,
         },
       })
     );
@@ -284,7 +306,7 @@ const approveWithdrawal = async (req, res, next) => {
   try {
     const { id } = req.params;
     const Transaction = require('../models/transaction.model');
-    const transaction = await Transaction.findById(id);
+    const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
     if (transaction.type !== 'withdrawal') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Not a withdrawal transaction');
@@ -307,7 +329,7 @@ const rejectWithdrawal = async (req, res, next) => {
   try {
     const { id } = req.params;
     const Transaction = require('../models/transaction.model');
-    const transaction = await Transaction.findById(id);
+    const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
     if (transaction.type !== 'withdrawal') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Not a withdrawal transaction');
@@ -335,55 +357,71 @@ const getAllDeposits = async (req, res, next) => {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const { search } = req.query;
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
     const Transaction = require('../models/transaction.model');
-    const query = { type: 'deposit' };
+    const User = require('../models/user.model');
+
+    const where = { type: 'deposit' };
     if (req.query.status === 'history') {
-      query.status = { $in: ['completed', 'failed', 'rejected', 'refunded', 'reversed'] };
+      where.status = { [Op.in]: ['completed', 'failed', 'rejected', 'refunded', 'reversed'] };
     } else if (req.query.status) {
-      query.status = req.query.status;
+      where.status = req.query.status;
     } else {
-      query.status = 'pending';
+      where.status = 'pending';
     }
-    
+
     if (search) {
-      const User = require('../models/user.model');
-      const searchRegex = new RegExp(search, 'i');
-      const users = await User.find({
-        $or: [
-          { name: searchRegex },
-          { phone: searchRegex },
-          { email: searchRegex }
-        ]
-      }).select('_id');
-      const userIds = users.map(u => u._id);
-      
-      query.$or = [
-        { userId: { $in: userIds } },
-        { 'metadata.utr': searchRegex },
-        { transactionId: searchRegex }
+      const users = await User.findAll({
+        where: {
+          [Op.or]: [
+            { name: { [Op.like]: `%${search}%` } },
+            { phone: { [Op.like]: `%${search}%` } },
+            { email: { [Op.like]: `%${search}%` } }
+          ]
+        },
+        attributes: ['id']
+      });
+      const userIds = users.map(u => u.id);
+
+      where[Op.or] = [
+        { userId: { [Op.in]: userIds } },
+        sequelize.literal(`JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.utr')) LIKE ${sequelize.escape('%' + search + '%')}`),
+        { transactionId: { [Op.like]: `%${search}%` } }
       ];
     }
-    
-    const deposits = await Transaction.find(query)
-      .populate('userId', 'name phone email avatar')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
 
-    const total = await Transaction.countDocuments(query);
+    const { count, rows } = await Transaction.findAndCountAll({
+      where,
+      include: [{
+        model: User,
+        as: 'user',
+        attributes: ['name', 'phone', 'email', 'avatar']
+      }],
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset
+    });
 
-    const ApiResponse = require('../utils/apiResponse');
+    const depositsMapped = rows.map(w => {
+      const json = w.toJSON();
+      const userObj = json.user;
+      delete json.user;
+      return {
+        ...json,
+        userId: userObj
+      };
+    });
+
     res.status(200).json(
       new ApiResponse(200, 'All deposits retrieved', {
-        deposits,
+        deposits: depositsMapped,
         pagination: {
           page,
           limit,
-          total,
-          pages: Math.ceil(total / limit),
-        },
+          total: count,
+          pages: Math.ceil(count / limit) || 1
+        }
       })
     );
   } catch (error) {
@@ -399,7 +437,7 @@ const approveDeposit = async (req, res, next) => {
   try {
     const { id } = req.params;
     const Transaction = require('../models/transaction.model');
-    const transaction = await Transaction.findById(id);
+    const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
     if (transaction.type !== 'deposit') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Not a deposit transaction');
@@ -425,7 +463,7 @@ const rejectDeposit = async (req, res, next) => {
   try {
     const { id } = req.params;
     const Transaction = require('../models/transaction.model');
-    const transaction = await Transaction.findById(id);
+    const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
     if (transaction.type !== 'deposit') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Not a deposit transaction');
@@ -450,27 +488,25 @@ const getUserWithdrawals = async (req, res, next) => {
     const { id } = req.params;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
+    const offset = (page - 1) * limit;
 
-    const transactionRepository = require('../repositories/transactionRepository');
     const Transaction = require('../models/transaction.model');
 
-    const query = { userId: id, type: 'withdrawal' };
-    const withdrawals = await Transaction.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-
-    const total = await Transaction.countDocuments(query);
+    const { count, rows } = await Transaction.findAndCountAll({
+      where: { userId: id, type: 'withdrawal' },
+      order: [['createdAt', 'DESC']],
+      limit,
+      offset
+    });
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'User withdrawals retrieved', {
-        withdrawals,
+        withdrawals: rows.map(r => r.toJSON()),
         pagination: {
           page,
           limit,
-          total,
-          pages: Math.ceil(total / limit),
+          total: count,
+          pages: Math.ceil(count / limit) || 1,
         },
       })
     );
@@ -564,7 +600,7 @@ const toggleWithdraw = async (req, res, next) => {
     if (!userId) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'userId is required');
 
     const User = require('../models/user.model');
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
     if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
 
     user.isWithdrawDisabled = disable === true;
@@ -591,7 +627,7 @@ const toggleGameplay = async (req, res, next) => {
     if (!userId) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'userId is required');
 
     const User = require('../models/user.model');
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
     if (!user) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
 
     user.isGameplayDisabled = disable === true;
@@ -622,7 +658,12 @@ const getAllGames = async (req, res, next) => {
     // Support multiple common query parameters for finding user games
     const targetUserId = userId || search || player || playerId;
     if (targetUserId) {
-      query['players.userId'] = targetUserId;
+      const numericUserId = parseInt(targetUserId, 10);
+      if (!isNaN(numericUserId)) {
+        query[Op.and] = [
+          sequelize.literal(`JSON_CONTAINS(players, JSON_OBJECT('userId', ${numericUserId}))`)
+        ];
+      }
     }
 
     const games = await gameRepository.findByStatus(status || 'all', {
@@ -639,10 +680,12 @@ const getAllGames = async (req, res, next) => {
     if (gameIds.length > 0) {
       try {
         const MatchHistory = require('../models/matchHistory.model');
-        const mongoose = require('mongoose');
-        const histories = await MatchHistory.find({
-          gameId: { $in: gameIds.map(id => new mongoose.Types.ObjectId(id)) }
-        }).lean();
+        const histories = await MatchHistory.findAll({
+          where: {
+            gameId: { [Op.in]: gameIds }
+          },
+          raw: true
+        });
         histories.forEach(h => {
           matchHistoryMap[h.gameId.toString()] = h;
         });
@@ -808,7 +851,7 @@ const forceEndGame = async (req, res, next) => {
         }
 
         participants.push({
-          userId: new mongoose.Types.ObjectId(uid),
+          userId: Number(uid),
           isBot: false,
           playerColor: TOKEN_COLORS[idx % TOKEN_COLORS.length],
           placement: idx + 2, // all losers, no winner
@@ -1097,10 +1140,16 @@ const getRevenue = async (req, res, next) => {
     //   Bot wins  → +entryFee  (admin kept user's coins)
     //   Human wins → entryFee - rewardAmount = negative (admin paid out net reward)
     const MatchHistory = require('../models/matchHistory.model');
-    const histories = await MatchHistory.find({
-      gameType: 'cash',
-      endedAt: { $gte: startDate, $lte: new Date() },
-    }).lean();
+    const histories = await MatchHistory.findAll({
+      where: {
+        gameType: 'cash',
+        endedAt: {
+          [Op.gte]: startDate,
+          [Op.lte]: new Date()
+        }
+      },
+      raw: true
+    });
 
     const grouped = {};
 
@@ -1195,12 +1244,15 @@ const getTransactionSummary = async (req, res, next) => {
     if (days && days !== 'all') {
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - parseInt(days));
-      query.createdAt = { $gte: startDate, $lte: new Date() };
+      query.createdAt = { [Op.gte]: startDate, [Op.lte]: new Date() };
     }
 
     const Transaction = require('../models/transaction.model');
     
-    const transactions = await Transaction.find(query).lean();
+    const transactions = await Transaction.findAll({
+      where: query,
+      raw: true
+    });
     
     let totalDeposit = 0;
     let totalWithdrawal = 0;
@@ -1326,16 +1378,23 @@ const setProbabilityConfig = async (req, res, next) => {
       const AdminLog = require('../models/adminLog.model');
       const User = require('../models/user.model'); // trigger restart
       
-      let query = { deviceTokens: { $exists: true, $not: { $size: 0 } }, isBot: false };
+      const where = { isBot: false };
       if (userId) {
-        query._id = userId;
+        where.id = userId;
       }
+      where[Op.and] = [
+        sequelize.literal("JSON_TYPE(deviceTokens) = 'ARRAY'"),
+        sequelize.literal("JSON_LENGTH(deviceTokens) > 0")
+      ];
   
       // Get users with device tokens
-      const users = await User.find(query, 'deviceTokens');
+      const users = await User.findAll({
+        where,
+        attributes: ['deviceTokens']
+      });
       
       // Extract all tokens into a single array
-      const tokens = users.reduce((acc, user) => [...acc, ...user.deviceTokens], []);
+      const tokens = users.reduce((acc, user) => [...acc, ...(user.deviceTokens || [])], []);
   
       if (tokens.length === 0) {
         return res.status(HTTP_STATUS.OK).json(
@@ -1350,7 +1409,7 @@ const setProbabilityConfig = async (req, res, next) => {
       if (type === 'popup') {
         const Popup = require('../models/popup.model');
         // Deactivate older popups
-        await Popup.updateMany({}, { isActive: false });
+        await Popup.update({ isActive: false }, { where: {} });
         // Create new popup
         await Popup.create({ title, body, isActive: true });
         
@@ -1396,32 +1455,34 @@ const getNotificationHistory = async (req, res, next) => {
     const { type, page = 1, limit = 20 } = req.query;
     const AdminLog = require('../models/adminLog.model');
 
-    const query = { action: 'SEND_NOTIFICATION' };
-    
-    const logs = await AdminLog.find(query)
-      .sort({ createdAt: -1 })
-      .skip((parseInt(page) - 1) * parseInt(limit))
-      .limit(parseInt(limit))
-      .lean();
-
-    // Filter by type if provided (type is inside changes.type)
-    let filteredLogs = logs;
+    const where = { action: 'SEND_NOTIFICATION' };
     if (type) {
-      filteredLogs = logs.filter(log => {
-        const logType = log.changes?.type || 'push'; // Default to push for older logs
-        return logType === type;
-      });
+      if (type === 'push') {
+        where[Op.or] = [
+          sequelize.literal(`JSON_UNQUOTE(JSON_EXTRACT(changes, '$.type')) = 'push'`),
+          sequelize.literal(`JSON_UNQUOTE(JSON_EXTRACT(changes, '$.type')) IS NULL`)
+        ];
+      } else {
+        where[Op.and] = [
+          sequelize.literal(`JSON_UNQUOTE(JSON_EXTRACT(changes, '$.type')) = ${sequelize.escape(type)}`)
+        ];
+      }
     }
 
-    const total = await AdminLog.countDocuments(query);
+    const { count, rows } = await AdminLog.findAndCountAll({
+      where,
+      order: [['createdAt', 'DESC']],
+      offset: (parseInt(page, 10) - 1) * parseInt(limit, 10),
+      limit: parseInt(limit, 10),
+    });
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Notification history retrieved', {
-        history: filteredLogs,
+        history: rows.map(r => r.toJSON()),
         pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total
+          page: parseInt(page, 10),
+          limit: parseInt(limit, 10),
+          total: count
         }
       })
     );
@@ -1436,9 +1497,11 @@ const LobbyGame = require('../models/lobbyGame.model');
 
 const getLobbyGames = async (req, res, next) => {
   try {
-    const games = await LobbyGame.find().sort({ entryFee: 1 }).lean();
+    const games = await LobbyGame.findAll({
+      order: [['entryFee', 'ASC']],
+    });
     res.status(HTTP_STATUS.OK).json(
-      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved', games)
+      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved', games.map(g => g.toJSON()))
     );
   } catch (error) {
     next(error);
@@ -1462,7 +1525,7 @@ const createLobbyGame = async (req, res, next) => {
     }
 
     res.status(HTTP_STATUS.CREATED).json(
-      new ApiResponse(HTTP_STATUS.CREATED, 'Lobby game created', game)
+      new ApiResponse(HTTP_STATUS.CREATED, 'Lobby game created', game.toJSON())
     );
   } catch (error) {
     next(error);
@@ -1474,15 +1537,12 @@ const updateLobbyGame = async (req, res, next) => {
     const { id } = req.params;
     const { entryFee, prizeAmount, maxPlayers, isActive } = req.body;
     
-    const game = await LobbyGame.findByIdAndUpdate(
-      id,
-      { entryFee, prizeAmount, maxPlayers, isActive },
-      { new: true, runValidators: true }
-    );
-
+    const game = await LobbyGame.findByPk(id);
     if (!game) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Lobby game not found');
     }
+
+    await game.update({ entryFee, prizeAmount, maxPlayers, isActive });
 
     if (game.isActive) {
       const notificationService = require('../services/notificationService');
@@ -1492,7 +1552,7 @@ const updateLobbyGame = async (req, res, next) => {
     }
 
     res.status(HTTP_STATUS.OK).json(
-      new ApiResponse(HTTP_STATUS.OK, 'Lobby game updated', game)
+      new ApiResponse(HTTP_STATUS.OK, 'Lobby game updated', game.toJSON())
     );
   } catch (error) {
     next(error);
@@ -1502,11 +1562,12 @@ const updateLobbyGame = async (req, res, next) => {
 const deleteLobbyGame = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const game = await LobbyGame.findByIdAndDelete(id);
-
+    const game = await LobbyGame.findByPk(id);
     if (!game) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Lobby game not found');
     }
+
+    await game.destroy();
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Lobby game deleted')

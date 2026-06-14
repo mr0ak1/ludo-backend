@@ -1,77 +1,77 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const reportSchema = new mongoose.Schema(
+class Report extends Model {}
+
+Report.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     reportedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
     },
     reportedUser: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     gameId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Game',
-      default: null,
+      type: DataTypes.STRING(32), // String gameId
+      allowNull: true,
+      defaultValue: null,
     },
     type: {
-      type: String,
-      enum: ['user', 'match'],
-      required: true,
+      type: DataTypes.ENUM('user', 'match'),
+      allowNull: false,
     },
     reason: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(255),
+      allowNull: false,
     },
     description: {
-      type: String,
-      default: '',
+      type: DataTypes.TEXT,
+      defaultValue: '',
     },
     status: {
-      type: String,
-      enum: ['open', 'under_review', 'resolved', 'closed', 'rejected'],
-      default: 'open',
+      type: DataTypes.ENUM('open', 'under_review', 'resolved', 'closed', 'rejected'),
+      defaultValue: 'open',
     },
     severity: {
-      type: String,
-      enum: ['low', 'medium', 'high', 'critical'],
-      default: 'medium',
+      type: DataTypes.ENUM('low', 'medium', 'high', 'critical'),
+      defaultValue: 'medium',
     },
     actionTaken: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
     },
     reviewedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     reviewedAt: {
-      type: Date,
-      default: null,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {
+    sequelize,
+    modelName: 'Report',
+    tableName: 'reports',
     timestamps: true,
-    collection: 'reports',
+    indexes: [
+      { fields: ['reportedBy', 'createdAt'] },
+      { fields: ['reportedUser'] },
+      { fields: ['status'] },
+      { fields: ['createdAt'] },
+    ],
   }
 );
 
-// Indexes
-reportSchema.index({ reportedBy: 1, createdAt: -1 });
-reportSchema.index({ reportedUser: 1 });
-reportSchema.index({ status: 1 });
-reportSchema.index({ createdAt: -1 });
-
-module.exports = mongoose.model('Report', reportSchema);
+module.exports = Report;

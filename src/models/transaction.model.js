@@ -1,24 +1,31 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const transactionSchema = new mongoose.Schema(
+class Transaction extends Model {}
+
+Transaction.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
     },
     transactionId: {
-      type: String,
+      type: DataTypes.STRING(64),
       unique: true,
-      default: () => 'tx_' + new mongoose.Types.ObjectId().toString(),
+      allowNull: false,
+      defaultValue: () => 'tx_' + require('crypto').randomBytes(12).toString('hex'),
     },
     amount: {
-      type: Number,
-      required: true,
+      type: DataTypes.INTEGER,
+      allowNull: false,
     },
     type: {
-      type: String,
-      enum: [
+      type: DataTypes.ENUM(
         'debit',
         'credit',
         'reward',
@@ -30,68 +37,68 @@ const transactionSchema = new mongoose.Schema(
         'game_entry',
         'game_reward',
         'deposit',
-        'withdrawal',
-      ],
-      required: true,
+        'withdrawal'
+      ),
+      allowNull: false,
     },
     reason: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(255),
+      allowNull: false,
     },
     gameId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Game',
-      default: null,
+      type: DataTypes.STRING(32), // Maps to Game gameId string
+      allowNull: true,
+      defaultValue: null,
     },
     opposingPlayerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     previousBalance: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     newBalance: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     beforeBalance: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     afterBalance: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     metadata: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      type: DataTypes.JSON,
+      defaultValue: {},
+      get() {
+        const val = this.getDataValue('metadata');
+        return typeof val === 'string' ? JSON.parse(val) : (val || {});
+      },
+      set(val) {
+        this.setDataValue('metadata', val);
+      }
     },
     status: {
-      type: String,
-      enum: ['pending', 'completed', 'failed', 'reversed'],
-      default: 'completed',
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.ENUM('pending', 'completed', 'failed', 'reversed'),
+      defaultValue: 'completed',
     },
   },
   {
+    sequelize,
+    modelName: 'Transaction',
+    tableName: 'transactions',
     timestamps: true,
-    collection: 'transactions',
+    indexes: [
+      { fields: ['userId', 'createdAt'] },
+      { fields: ['gameId'] },
+      { fields: ['transactionId'] },
+      { fields: ['createdAt'] },
+    ],
   }
 );
 
-// Indexes
-transactionSchema.index({ userId: 1, createdAt: -1 });
-transactionSchema.index({ gameId: 1 });
-transactionSchema.index({ transactionId: 1 });
-transactionSchema.index({ createdAt: -1 });
-
-module.exports = mongoose.model('Transaction', transactionSchema);
+module.exports = Transaction;

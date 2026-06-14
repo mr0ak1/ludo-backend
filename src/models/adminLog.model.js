@@ -1,62 +1,82 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const adminLogSchema = new mongoose.Schema(
+class AdminLog extends Model {}
+
+AdminLog.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    // FK to users.id (admin who performed action)
     adminId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
     },
     action: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(255),
+      allowNull: false,
     },
+    // FK to users.id (target user, nullable)
     targetUserId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
+    // FK to games.id (target game, nullable)
     targetGameId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Game',
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
+    // What changed, stored as JSON
     changes: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      type: DataTypes.JSON,
+      defaultValue: {},
+      get() {
+        const val = this.getDataValue('changes');
+        return typeof val === 'string' ? JSON.parse(val) : (val || {});
+      },
+      set(val) {
+        this.setDataValue('changes', val);
+      }
     },
     reason: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(512),
+      allowNull: true,
+      defaultValue: null,
     },
     status: {
-      type: String,
-      enum: ['pending', 'completed', 'failed'],
-      default: 'completed',
+      type: DataTypes.ENUM('pending', 'completed', 'failed'),
+      defaultValue: 'completed',
     },
     ipAddress: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(45),
+      allowNull: true,
+      defaultValue: null,
     },
     userAgent: {
-      type: String,
-      default: null,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
     },
   },
   {
-    timestamps: false,
-    collection: 'admin_logs',
+    sequelize,
+    modelName: 'AdminLog',
+    tableName: 'admin_logs',
+    timestamps: true,
+    createdAt: 'createdAt',
+    updatedAt: false,
+    indexes: [
+      { fields: ['adminId', 'createdAt'] },
+      { fields: ['targetUserId'] },
+      { fields: ['action'] },
+      { fields: ['createdAt'] },
+    ],
   }
 );
 
-// Indexes
-adminLogSchema.index({ adminId: 1, createdAt: -1 });
-adminLogSchema.index({ targetUserId: 1 });
-adminLogSchema.index({ action: 1 });
-adminLogSchema.index({ createdAt: -1 });
-
-module.exports = mongoose.model('AdminLog', adminLogSchema);
+module.exports = AdminLog;

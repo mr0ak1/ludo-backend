@@ -1,23 +1,37 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const probabilityConfigSchema = new mongoose.Schema({
-  winProbability: {
-    type: Number,
-    required: true,
-    min: 0,
-    max: 100,
-    default: 30,
-  },
-  enabled: {
-    type: Boolean,
-    required: true,
-    default: false,
-  },
-  forceOverrideBotManagement: {
-    type: Boolean,
-    required: true,
-    default: true,
-  },
-}, { timestamps: true });
+class ProbabilityConfig extends Model {}
 
-module.exports = mongoose.model('ProbabilityConfig', probabilityConfigSchema);
+ProbabilityConfig.init(
+  {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    winProbability: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      defaultValue: 30,
+    },
+    enabled: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false,
+    },
+    forceOverrideBotManagement: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true,
+    },
+  },
+  {
+    sequelize,
+    modelName: 'ProbabilityConfig',
+    tableName: 'probability_configs',
+    timestamps: true,
+  }
+);
+
+module.exports = ProbabilityConfig;

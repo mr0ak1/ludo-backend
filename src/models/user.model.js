@@ -1,173 +1,190 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const userSchema = new mongoose.Schema(
+class User extends Model {}
+
+User.init(
   {
-    phone: {
-      type: String,
-      required: true,
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    uuid: {
+      type: DataTypes.UUID,
+      defaultValue: DataTypes.UUIDV4,
       unique: true,
-      trim: true,
-      lowercase: true,
+      allowNull: false,
+    },
+    phone: {
+      type: DataTypes.STRING(20),
+      allowNull: false,
+      unique: true,
     },
     firebaseUid: {
-      type: String,
-      required: false,
+      type: DataTypes.STRING(128),
       unique: true,
-      sparse: true,
+      allowNull: true,
+      defaultValue: null,
     },
     name: {
-      type: String,
-      default: 'Player',
+      type: DataTypes.STRING(100),
+      defaultValue: 'Player',
+      allowNull: false,
     },
     email: {
-      type: String,
-      sparse: true,
-      lowercase: true,
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
     },
     avatar: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(512),
+      allowNull: true,
+      defaultValue: null,
     },
     coins: {
-      type: Number,
-      default: 500,
-      min: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 500,
+      allowNull: false,
     },
     wins: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
     },
     losses: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
     },
     totalGames: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
     },
     winRate: {
-      type: Number,
-      default: 0,
-      min: 0,
-      max: 100,
+      type: DataTypes.FLOAT,
+      defaultValue: 0,
     },
     rankPoints: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     bestWinStreak: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
     },
     currentWinStreak: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER.UNSIGNED,
+      defaultValue: 0,
     },
     totalCoinsWon: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.BIGINT,
+      defaultValue: 0,
     },
     totalCoinsLost: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.BIGINT,
+      defaultValue: 0,
     },
     favoriteTokenColor: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(20),
+      allowNull: true,
+      defaultValue: null,
     },
+    // Stored as JSON: { red: 3, blue: 1, ... }
     tokenColorWinCounts: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      type: DataTypes.JSON,
+      defaultValue: {},
+      get() {
+        const val = this.getDataValue('tokenColorWinCounts');
+        return typeof val === 'string' ? JSON.parse(val) : (val || {});
+      },
+      set(val) {
+        this.setDataValue('tokenColorWinCounts', val);
+      }
     },
     isBanned: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     banReason: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(512),
+      allowNull: true,
+      defaultValue: null,
     },
     isSuspended: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     suspendReason: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(512),
+      allowNull: true,
+      defaultValue: null,
     },
     isWithdrawDisabled: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     isGameplayDisabled: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     isAdmin: {
-      type: Boolean,
-      default: false,
-      index: true,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     lastActive: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
     },
+    // Array of FCM device tokens stored as JSON
     deviceTokens: {
-      type: [String],
-      default: [],
+      type: DataTypes.JSON,
+      defaultValue: [],
+      get() {
+        const val = this.getDataValue('deviceTokens');
+        return typeof val === 'string' ? JSON.parse(val) : (val || []);
+      },
+      set(val) {
+        this.setDataValue('deviceTokens', val);
+      }
     },
     isBot: {
-      type: Boolean,
-      default: false,
-      index: true,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     botLevel: {
-      type: String,
-      enum: ['easy', 'medium', 'hard', null],
-      default: null,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.ENUM('easy', 'medium', 'hard'),
+      allowNull: true,
+      defaultValue: null,
     },
     referralCode: {
-      type: String,
+      type: DataTypes.STRING(20),
       unique: true,
-      sparse: true,
+      allowNull: true,
+      defaultValue: null,
     },
-    referredBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+    referredById: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     referralEarnings: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
   },
   {
-    timestamps: true,
-    collection: 'users',
+    sequelize,
+    modelName: 'User',
+    tableName: 'users',
+    timestamps: true, // createdAt, updatedAt auto-managed
+    indexes: [
+      { fields: ['phone'] },
+      { fields: ['firebaseUid'] },
+      { fields: ['isAdmin'] },
+      { fields: ['isBot'] },
+      { fields: ['isBanned'] },
+      { fields: ['createdAt'] },
+    ],
   }
 );
 
-// Indexes
-userSchema.index({ phone: 1 });
-userSchema.index({ firebaseUid: 1 });
-userSchema.index({ createdAt: -1 });
-userSchema.index({ isBanned: 1 });
-userSchema.index({ isBot: 1, totalGames: -1, winRate: -1, wins: -1 });
-
-module.exports = mongoose.model('User', userSchema);
+module.exports = User;

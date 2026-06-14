@@ -674,7 +674,9 @@ class WalletService {
    */
   async verifyPendingDeposits(userId) {
     const Transaction = require('../models/transaction.model');
-    const pendingTxns = await Transaction.find({ userId, type: 'deposit', status: 'pending' });
+    const pendingTxns = await Transaction.findAll({
+      where: { userId, type: 'deposit', status: 'pending' }
+    });
 
     if (!pendingTxns.length) {
       return { updated: false };
@@ -706,10 +708,13 @@ class WalletService {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Valid UTR is required');
     }
 
+    const { sequelize } = require('../config/db');
     const Transaction = require('../models/transaction.model');
     
     // Check if UTR already exists to prevent duplicate submission
-    const existing = await Transaction.findOne({ 'metadata.utr': utr });
+    const existing = await Transaction.findOne({
+      where: sequelize.literal(`JSON_UNQUOTE(JSON_EXTRACT(metadata, '$.utr')) = ${sequelize.escape(utr)}`)
+    });
     if (existing) {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'UTR already submitted');
     }

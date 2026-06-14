@@ -7,12 +7,12 @@ jest.mock('../../src/models/probabilityConfig.model', () => ({
 }));
 
 jest.mock('../../src/models/game.model', () => ({
-  find: jest.fn(),
-  bulkWrite: jest.fn(),
+  findAll: jest.fn(),
+  update: jest.fn(),
 }));
 
 jest.mock('../../src/models/probabilityAudit.model', () => ({
-  insertMany: jest.fn(),
+  bulkCreate: jest.fn(),
 }));
 
 const ProbabilityConfig = require('../../src/models/probabilityConfig.model');
@@ -27,29 +27,31 @@ describe('ProbabilityService.recalculate', () => {
   test('no-op when config disabled', async () => {
     ProbabilityConfig.findOne.mockResolvedValue({ enabled: false, winProbability: 50 });
     await probabilityService.recalculate();
-    expect(Game.find).not.toHaveBeenCalled();
-    expect(Game.bulkWrite).not.toHaveBeenCalled();
+    expect(Game.findAll).not.toHaveBeenCalled();
+    expect(Game.update).not.toHaveBeenCalled();
   });
 
   test('no active games exits cleanly', async () => {
     ProbabilityConfig.findOne.mockResolvedValue({ enabled: true, winProbability: 50 });
-    Game.find.mockImplementation(() => ({ select: () => ({ lean: async () => [] }) }));
+    Game.findAll.mockResolvedValue([]);
     await probabilityService.recalculate();
-    expect(Game.find).toHaveBeenCalled();
-    expect(Game.bulkWrite).not.toHaveBeenCalled();
+    expect(Game.findAll).toHaveBeenCalled();
+    expect(Game.update).not.toHaveBeenCalled();
   });
 
   test('assigns all easy when probability 100%', async () => {
     ProbabilityConfig.findOne.mockResolvedValue({ enabled: true, winProbability: 100 });
 
     const makeGame = (bet, createdAt, id, initialDifficulty = 'hard') => ({
-      _id: id,
+      id,
+      gameId: id,
       betAmount: bet,
       createdAt,
       players: [
         { isBot: true, botDifficulty: initialDifficulty },
         { isBot: false },
       ],
+      toJSON() { return this; }
     });
 
     const games = [
@@ -58,30 +60,32 @@ describe('ProbabilityService.recalculate', () => {
       makeGame(50, new Date('2020-01-01T02:00:00Z'), 'g3'),
     ];
 
-    Game.find.mockImplementation(() => ({ select: () => ({ lean: async () => games }) }));
-    Game.bulkWrite.mockResolvedValue({});
-    ProbabilityAudit.insertMany.mockResolvedValue({});
+    Game.findAll.mockResolvedValue(games);
+    Game.update.mockResolvedValue([1]);
+    ProbabilityAudit.bulkCreate.mockResolvedValue({});
 
     await probabilityService.recalculate();
 
     // All bot difficulties should be updated to 'easy' where they were 'hard'
-    expect(Game.bulkWrite).toHaveBeenCalled();
-    const ops = Game.bulkWrite.mock.calls[0][0];
-    expect(ops.length).toBe(3);
-    expect(ops[0].updateOne.update.$set.players[0].botDifficulty).toBe('easy');
-    expect(ProbabilityAudit.insertMany).toHaveBeenCalled();
+    expect(Game.update).toHaveBeenCalledTimes(3);
+    expect(Game.update).toHaveBeenNthCalledWith(1, { players: [{ isBot: true, botDifficulty: 'easy' }, { isBot: false }] }, { where: { id: 'g1' } });
+    expect(Game.update).toHaveBeenNthCalledWith(2, { players: [{ isBot: true, botDifficulty: 'easy' }, { isBot: false }] }, { where: { id: 'g2' } });
+    expect(Game.update).toHaveBeenNthCalledWith(3, { players: [{ isBot: true, botDifficulty: 'easy' }, { isBot: false }] }, { where: { id: 'g3' } });
+    expect(ProbabilityAudit.bulkCreate).toHaveBeenCalled();
   });
 
   test('assigns floor(total * p/100) games to easy', async () => {
     ProbabilityConfig.findOne.mockResolvedValue({ enabled: true, winProbability: 30 });
 
     const makeGame = (bet, createdAt, id, initialDifficulty = 'hard') => ({
-      _id: id,
+      id,
+      gameId: id,
       betAmount: bet,
       createdAt,
       players: [
         { isBot: true, botDifficulty: initialDifficulty },
       ],
+      toJSON() { return this; }
     });
 
     // 10 games with ascending bets
@@ -90,33 +94,33 @@ describe('ProbabilityService.recalculate', () => {
       games.push(makeGame(i * 10, new Date(2020, 0, i), `g${i}`));
     }
 
-    // Shuffle not needed; service will sort
-    Game.find.mockImplementation(() => ({ select: () => ({ lean: async () => games }) }));
-    Game.bulkWrite.mockResolvedValue({});
-    ProbabilityAudit.insertMany.mockResolvedValue({});
+    Game.findAll.mockResolvedValue(games);
+    Game.update.mockResolvedValue([1]);
+    ProbabilityAudit.bulkCreate.mockResolvedValue({});
 
     await probabilityService.recalculate();
 
-    // easyCount = floor(10 * 30 / 100) = 3 -> first 3 games must be updated
-    expect(Game.bulkWrite).toHaveBeenCalled();
-    const ops = Game.bulkWrite.mock.calls[0][0];
-    // We expect 3 updates (first 3 games' botDifficulty changed)
-    expect(ops.length).toBe(3);
-    expect(ops[0].updateOne.update.$set.players[0].botDifficulty).toBe('easy');
-    expect(ops[2].updateOne.update.$set.players[0].botDifficulty).toBe('easy');
-    expect(ProbabilityAudit.insertMany).toHaveBeenCalled();
+    // easyCount = floor(10 * 30 / 100) = 3 -> first 3 games must be updated to 'easy'
+    // remaining 7 games will be assigned 'hard', but they are already 'hard' so they won't trigger Game.update!
+    expect(Game.update).toHaveBeenCalledTimes(3);
+    expect(Game.update).toHaveBeenNthCalledWith(1, { players: [{ isBot: true, botDifficulty: 'easy' }] }, { where: { id: 'g1' } });
+    expect(Game.update).toHaveBeenNthCalledWith(2, { players: [{ isBot: true, botDifficulty: 'easy' }] }, { where: { id: 'g2' } });
+    expect(Game.update).toHaveBeenNthCalledWith(3, { players: [{ isBot: true, botDifficulty: 'easy' }] }, { where: { id: 'g3' } });
+    expect(ProbabilityAudit.bulkCreate).toHaveBeenCalled();
   });
 
   test('respects forceOverrideBotManagement false', async () => {
     ProbabilityConfig.findOne.mockResolvedValue({ enabled: true, winProbability: 100, forceOverrideBotManagement: false });
 
     const makeGame = (bet, createdAt, id, initialDifficulty = 'medium') => ({
-      _id: id,
+      id,
+      gameId: id,
       betAmount: bet,
       createdAt,
       players: [
         { isBot: true, botDifficulty: initialDifficulty },
       ],
+      toJSON() { return this; }
     });
 
     const games = [
@@ -124,13 +128,13 @@ describe('ProbabilityService.recalculate', () => {
       makeGame(20, new Date('2020-01-01T01:00:00Z'), 'g2'),
     ];
 
-    Game.find.mockImplementation(() => ({ select: () => ({ lean: async () => games }) }));
-    Game.bulkWrite.mockResolvedValue({});
-    ProbabilityAudit.insertMany.mockResolvedValue({});
+    Game.findAll.mockResolvedValue(games);
+    Game.update.mockResolvedValue([1]);
+    ProbabilityAudit.bulkCreate.mockResolvedValue({});
 
     await probabilityService.recalculate();
 
-    expect(Game.bulkWrite).not.toHaveBeenCalled();
-    expect(ProbabilityAudit.insertMany).not.toHaveBeenCalled();
+    expect(Game.update).not.toHaveBeenCalled();
+    expect(ProbabilityAudit.bulkCreate).not.toHaveBeenCalled();
   });
 });

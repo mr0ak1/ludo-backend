@@ -53,6 +53,14 @@ const transactionTypeSchema = Joi.string()
   .messages({
     'any.only': `Transaction type must be one of: ${TRANSACTION_TYPES.join(', ')}`,
   });
+const userIdSchema = Joi.alternatives().try(
+  Joi.number().integer().min(1),
+  Joi.string().regex(/^\d+$/).messages({ 'string.pattern.base': 'User ID must be a numeric ID' }),
+  Joi.string().hex().length(16),
+  Joi.string().hex().length(24)
+).required().messages({
+  'any.required': 'User ID is required',
+});
 
 /**
  * Validate get wallet request
@@ -92,14 +100,7 @@ const validateGetTransactionHistory = (data) => {
  */
 const validateAddCoins = (data) => {
   const schema = Joi.object({
-    userId: Joi.string()
-      .length(24)
-      .hex()
-      .required()
-      .messages({
-        'string.length': 'User ID must be a valid MongoDB ObjectId',
-        'any.required': 'User ID is required',
-      }),
+    userId: userIdSchema,
     amount: coinAmountSchema,
     reason: reasonSchema,
   });
@@ -114,14 +115,7 @@ const validateAddCoins = (data) => {
  */
 const validateDeductCoins = (data) => {
   const schema = Joi.object({
-    userId: Joi.string()
-      .length(24)
-      .hex()
-      .required()
-      .messages({
-        'string.length': 'User ID must be a valid MongoDB ObjectId',
-        'any.required': 'User ID is required',
-      }),
+    userId: userIdSchema,
     amount: coinAmountSchema,
     reason: reasonSchema,
   });
@@ -136,14 +130,7 @@ const validateDeductCoins = (data) => {
  */
 const validateFreezeWallet = (data) => {
   const schema = Joi.object({
-    userId: Joi.string()
-      .length(24)
-      .hex()
-      .required()
-      .messages({
-        'string.length': 'User ID must be a valid MongoDB ObjectId',
-        'any.required': 'User ID is required',
-      }),
+    userId: userIdSchema,
     reason: reasonSchema,
   });
 
@@ -157,14 +144,7 @@ const validateFreezeWallet = (data) => {
  */
 const validateUnfreezeWallet = (data) => {
   const schema = Joi.object({
-    userId: Joi.string()
-      .length(24)
-      .hex()
-      .required()
-      .messages({
-        'string.length': 'User ID must be a valid MongoDB ObjectId',
-        'any.required': 'User ID is required',
-      }),
+    userId: userIdSchema,
   });
 
   return schema.validate(data, { abortEarly: false });

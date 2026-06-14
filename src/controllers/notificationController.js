@@ -79,7 +79,10 @@ const registerDevice = async (req, res, next) => {
 const getLatestPopup = async (req, res, next) => {
   try {
     const Popup = require('../models/popup.model');
-    const latestPopup = await Popup.findOne({ isActive: true }).sort({ createdAt: -1 });
+    const latestPopup = await Popup.findOne({
+      where: { isActive: true },
+      order: [['createdAt', 'DESC']],
+    });
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Latest popup retrieved', { popup: latestPopup })

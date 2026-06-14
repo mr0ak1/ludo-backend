@@ -1,16 +1,21 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const notificationSchema = new mongoose.Schema(
+class Notification extends Model {}
+
+Notification.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
     },
     type: {
-      type: String,
-      enum: [
-        // Roadmap 8.2
+      type: DataTypes.ENUM(
         'match_found',
         'game_started',
         'your_turn',
@@ -19,68 +24,72 @@ const notificationSchema = new mongoose.Schema(
         'achievement',
         'bonus',
         'system_alert',
-        // Legacy / extended
         'opponent_joined',
         'wallet_credited',
         'daily_reward',
         'tournament_started',
         'game_invitation',
-        'system_message',
-      ],
-      required: true,
+        'system_message'
+      ),
+      allowNull: false,
     },
     title: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(255),
+      allowNull: false,
     },
     body: {
-      type: String,
-      required: true,
+      type: DataTypes.TEXT,
+      allowNull: false,
     },
     data: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      type: DataTypes.JSON,
+      defaultValue: {},
+      get() {
+        const val = this.getDataValue('data');
+        return typeof val === 'string' ? JSON.parse(val) : (val || {});
+      },
+      set(val) {
+        this.setDataValue('data', val);
+      }
     },
     isRead: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     readAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     isSent: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     sentAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     sendError: {
-      type: String,
-      default: null,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.TEXT,
+      allowNull: true,
+      defaultValue: null,
     },
     expiresAt: {
-      type: Date,
-      default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+      type: DataTypes.DATE,
+      defaultValue: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
     },
   },
   {
+    sequelize,
+    modelName: 'Notification',
+    tableName: 'notifications',
     timestamps: true,
-    collection: 'notifications',
+    indexes: [
+      { fields: ['userId', 'createdAt'] },
+      { fields: ['isRead'] },
+    ],
   }
 );
 
-// TTL Index - Auto delete after expiresAt
-notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-
-// Regular Indexes
-notificationSchema.index({ userId: 1, createdAt: -1 });
-notificationSchema.index({ isRead: 1 });
-
-module.exports = mongoose.model('Notification', notificationSchema);
+module.exports = Notification;

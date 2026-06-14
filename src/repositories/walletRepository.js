@@ -1,3 +1,5 @@
+const { Op } = require('sequelize');
+const { sequelize } = require('../config/db');
 const Wallet = require('../models/wallet.model');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
@@ -7,14 +9,14 @@ class WalletRepository {
   /**
    * Create a new wallet
    * @param {Object} walletData - Wallet data
+   * @param {Object} options - Options
    * @returns {Promise<Object>} Created wallet
    */
   async create(walletData, options = {}) {
     try {
-      const wallet = new Wallet(walletData);
-      await wallet.save(options);
+      const wallet = await Wallet.create(walletData, { transaction: options.transaction });
       logger.info(`Wallet created for user: ${walletData.userId}`);
-      return wallet.toObject();
+      return wallet.toJSON();
     } catch (error) {
       logger.error('Error creating wallet:', error);
       throw error;
@@ -23,13 +25,18 @@ class WalletRepository {
 
   /**
    * Find wallet by user ID
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Object|null>} Wallet object or null
    */
   async findByUserId(userId, options = {}) {
     try {
-      const wallet = await Wallet.findOne({ userId }, null, options).select('-__v');
-      return wallet ? wallet.toObject() : null;
+      const numericUserId = parseInt(userId, 10);
+      if (isNaN(numericUserId)) return null;
+      const wallet = await Wallet.findOne({
+        where: { userId: numericUserId },
+        transaction: options.transaction,
+      });
+      return wallet ? wallet.toJSON() : null;
     } catch (error) {
       logger.error('Error finding wallet by user ID:', error);
       throw error;
@@ -38,13 +45,15 @@ class WalletRepository {
 
   /**
    * Find wallet by ID
-   * @param {String} walletId - Wallet ID
+   * @param {String|Number} walletId - Wallet ID
    * @returns {Promise<Object|null>} Wallet object or null
    */
   async findById(walletId, options = {}) {
     try {
-      const wallet = await Wallet.findById(walletId, null, options).select('-__v');
-      return wallet ? wallet.toObject() : null;
+      const numericId = parseInt(walletId, 10);
+      if (isNaN(numericId)) return null;
+      const wallet = await Wallet.findByPk(numericId, { transaction: options.transaction });
+      return wallet ? wallet.toJSON() : null;
     } catch (error) {
       logger.error('Error finding wallet by ID:', error);
       throw error;
@@ -52,72 +61,63 @@ class WalletRepository {
   }
 
   /**
-   * Update wallet coins
-   * @param {String} userId - User ID
+   * Update wallet coins atomically using Sequelize transaction
+   * @param {String|Number} userId - User ID
    * @param {Number} amount - Coin amount (can be negative for deduction)
    * @param {String} reason - Reason for transaction
    * @returns {Promise<Object>} Updated wallet
    */
   async updateCoins(userId, amount, reason = 'Manual update', options = {}) {
+    const numericUserId = parseInt(userId, 10);
+    const t = options.transaction || await sequelize.transaction();
+    const isExternalTx = !!options.transaction;
+
     try {
       if (!Number.isInteger(amount) || amount === 0) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid coin amount');
       }
 
-      // Pre-check for locked status and balance for better error diagnostics
-      const existingWallet = await Wallet.findOne({ userId }, 'isLocked lockedReason coins', options);
-      if (!existingWallet) {
+      // Lock the row for update within the transaction
+      const wallet = await Wallet.findOne({
+        where: { userId: numericUserId },
+        transaction: t,
+        lock: true,
+      });
+
+      if (!wallet) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
       }
 
-      if (existingWallet.isLocked) {
-        throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${existingWallet.lockedReason}`);
+      if (wallet.isLocked) {
+        throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
       }
 
-      if (amount < 0 && existingWallet.coins + amount < 0) {
+      if (amount < 0 && wallet.coins + amount < 0) {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Insufficient coins');
       }
 
-      // Build atomic query
-      const query = {
-        userId,
-        isLocked: false,
-      };
-
-      if (amount < 0) {
-        query.coins = { $gte: Math.abs(amount) }; // Enforce balance check atomically
+      const prevCoins = wallet.coins;
+      await wallet.increment({ coins: amount }, { transaction: t });
+      
+      // Keep track of statistics
+      if (amount > 0) {
+        await wallet.increment({ totalEarned: amount }, { transaction: t });
+      } else {
+        await wallet.increment({ totalSpent: Math.abs(amount) }, { transaction: t });
       }
 
-      const update = {
-        $inc: { coins: amount },
-        $set: { updatedAt: new Date() },
-      };
+      await wallet.reload({ transaction: t });
+      logger.info(`Wallet updated atomically for user ${userId}: ${prevCoins} → ${wallet.coins} (${reason})`);
 
-      const updatedWallet = await Wallet.findOneAndUpdate(query, update, {
-        new: true,
-        runValidators: true,
-        ...options,
-      }).select('-__v');
-
-      if (!updatedWallet) {
-        // If the update failed, find out why to raise the precise error
-        const doubleCheck = await Wallet.findOne({ userId }, 'isLocked coins', options);
-        if (!doubleCheck) {
-          throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
-        }
-        if (doubleCheck.isLocked) {
-          throw new ApiError(HTTP_STATUS.CONFLICT, 'Wallet was concurrently locked');
-        }
-        if (amount < 0 && doubleCheck.coins < Math.abs(amount)) {
-          throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Insufficient coins');
-        }
-        throw new ApiError(HTTP_STATUS.CONFLICT, 'Concurrent wallet update conflict. Please try again.');
+      if (!isExternalTx) {
+        await t.commit();
       }
 
-      logger.info(`Wallet updated atomically for user ${userId}: ${existingWallet.coins} → ${updatedWallet.coins} (${reason})`);
-
-      return updatedWallet.toObject();
+      return wallet.toJSON();
     } catch (error) {
+      if (!isExternalTx) {
+        await t.rollback();
+      }
       if (error instanceof ApiError) throw error;
       logger.error('Error updating coins:', error);
       throw error;
@@ -126,29 +126,26 @@ class WalletRepository {
 
   /**
    * Lock wallet (freeze balance)
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {String} reason - Lock reason
    * @returns {Promise<Object>} Updated wallet
    */
   async lockWallet(userId, reason, options = {}) {
     try {
-      const wallet = await Wallet.findOneAndUpdate(
-        { userId },
-        {
-          isLocked: true,
-          lockedReason: reason,
-          lockedAt: new Date(),
-          updatedAt: new Date(),
-        },
-        { new: true, ...options }
-      ).select('-__v');
-
+      const numericUserId = parseInt(userId, 10);
+      const wallet = await Wallet.findOne({ where: { userId: numericUserId }, transaction: options.transaction });
       if (!wallet) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
       }
 
+      await wallet.update({
+        isLocked: true,
+        lockedReason: reason,
+        lockedAt: new Date(),
+      }, { transaction: options.transaction });
+
       logger.warn(`Wallet locked for user ${userId}: ${reason}`);
-      return wallet.toObject();
+      return wallet.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error locking wallet:', error);
@@ -158,28 +155,25 @@ class WalletRepository {
 
   /**
    * Unlock wallet (unfreeze balance)
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Object>} Updated wallet
    */
   async unlockWallet(userId, options = {}) {
     try {
-      const wallet = await Wallet.findOneAndUpdate(
-        { userId },
-        {
-          isLocked: false,
-          lockedReason: null,
-          lockedAt: null,
-          updatedAt: new Date(),
-        },
-        { new: true, ...options }
-      ).select('-__v');
-
+      const numericUserId = parseInt(userId, 10);
+      const wallet = await Wallet.findOne({ where: { userId: numericUserId }, transaction: options.transaction });
       if (!wallet) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Wallet not found');
       }
 
+      await wallet.update({
+        isLocked: false,
+        lockedReason: null,
+        lockedAt: null,
+      }, { transaction: options.transaction });
+
       logger.info(`Wallet unlocked for user ${userId}`);
-      return wallet.toObject();
+      return wallet.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error unlocking wallet:', error);
@@ -189,12 +183,17 @@ class WalletRepository {
 
   /**
    * Get wallet balance
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Number>} Coin balance
    */
   async getBalance(userId, options = {}) {
     try {
-      const wallet = await Wallet.findOne({ userId }, 'coins', options);
+      const numericUserId = parseInt(userId, 10);
+      const wallet = await Wallet.findOne({
+        where: { userId: numericUserId },
+        attributes: ['coins'],
+        transaction: options.transaction,
+      });
       return wallet ? wallet.coins : 0;
     } catch (error) {
       logger.error('Error getting balance:', error);
@@ -204,7 +203,7 @@ class WalletRepository {
 
   /**
    * Deduct coins from wallet
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {Number} amount - Amount to deduct (positive number)
    * @param {String} reason - Reason for deduction
    * @returns {Promise<Object>} Updated wallet
@@ -225,7 +224,7 @@ class WalletRepository {
 
   /**
    * Add coins to wallet
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {Number} amount - Amount to add (positive number)
    * @param {String} reason - Reason for addition
    * @returns {Promise<Object>} Updated wallet
@@ -246,7 +245,7 @@ class WalletRepository {
 
   /**
    * Check if wallet has sufficient balance
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {Number} requiredAmount - Required amount
    * @returns {Promise<Boolean>} Has sufficient balance
    */
@@ -273,24 +272,23 @@ class WalletRepository {
 
       const query = {};
       if (filters.isLocked !== undefined) query.isLocked = filters.isLocked;
-      if (filters.minCoins !== undefined) query.coins = { $gte: filters.minCoins };
+      if (filters.minCoins !== undefined) query.coins = { [Op.gte]: filters.minCoins };
       if (filters.maxCoins !== undefined) {
-        query.coins = { ...(query.coins || {}), $lte: filters.maxCoins };
+        query.coins = { ...(query.coins || {}), [Op.lte]: filters.maxCoins };
       }
 
-      const wallets = await Wallet.find(query)
-        .select('-__v')
-        .limit(limit)
-        .skip(skip)
-        .sort({ createdAt: -1 });
-
-      const total = await Wallet.countDocuments(query);
+      const { count, rows } = await Wallet.findAndCountAll({
+        where: query,
+        limit,
+        offset: skip,
+        order: [['createdAt', 'DESC']],
+      });
 
       return {
-        wallets: wallets.map(w => w.toObject()),
-        total,
+        wallets: rows.map(w => w.toJSON()),
+        total: count,
         page,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(count / limit) || 1,
       };
     } catch (error) {
       logger.error('Error finding wallets:', error);
@@ -304,10 +302,7 @@ class WalletRepository {
    */
   async getTotalSystemBalance() {
     try {
-      const result = await Wallet.aggregate([
-        { $group: { _id: null, totalBalance: { $sum: '$coins' } } }
-      ]);
-      return result.length > 0 ? result[0].totalBalance : 0;
+      return await Wallet.sum('coins') || 0;
     } catch (error) {
       logger.error('Error getting total system balance:', error);
       return 0;

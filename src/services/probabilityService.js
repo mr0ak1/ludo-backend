@@ -2,7 +2,8 @@ const ProbabilityConfig = require('../models/probabilityConfig.model');
 const Game = require('../models/game.model');
 const logger = require('../utils/logger');
 const ProbabilityAudit = require('../models/probabilityAudit.model');
-const mongoose = require('mongoose');
+const { sequelize } = require('../config/db');
+const { Op } = require('sequelize');
 
 class ProbabilityService {
   constructor() {
@@ -39,8 +40,7 @@ class ProbabilityService {
   async setConfig(data) {
     let config = await ProbabilityConfig.findOne();
     if (config) {
-      Object.assign(config, data);
-      await config.save();
+      await config.update(data);
     } else {
       config = await ProbabilityConfig.create(data);
     }
@@ -61,12 +61,18 @@ class ProbabilityService {
 
       // Step 1: Fetch all active user-vs-bot games
       // Active games where at least one player is a bot
-      const activeGames = await Game.find({
-        status: { $in: ['active', 'ongoing'] },
-        'players.isBot': true
-      }).select('_id betAmount createdAt players').lean();
+      const activeGames = await Game.findAll({
+        where: {
+          status: { [Op.in]: ['active', 'ongoing'] },
+          [Op.and]: [
+            sequelize.literal("JSON_CONTAINS(players, JSON_OBJECT('isBot', true))")
+          ]
+        },
+        attributes: ['id', 'gameId', 'betAmount', 'createdAt', 'players']
+      });
 
-      const totalActiveGames = activeGames.length;
+      const activeGamesPlain = activeGames.map(g => g.toJSON());
+      const totalActiveGames = activeGamesPlain.length;
       
       // Case 1: No Active Games
       if (totalActiveGames === 0) {
@@ -74,8 +80,8 @@ class ProbabilityService {
         return;
       }
 
-      // Step 2: Sort by bet amount (asc), createdAt (asc), _id (asc)
-      activeGames.sort((a, b) => {
+      // Step 2: Sort by bet amount (asc), createdAt (asc), id (asc)
+      activeGamesPlain.sort((a, b) => {
         const betA = a.betAmount || 0;
         const betB = b.betAmount || 0;
         if (betA !== betB) return betA - betB;
@@ -84,7 +90,7 @@ class ProbabilityService {
         const timeB = new Date(b.createdAt).getTime();
         if (timeA !== timeB) return timeA - timeB;
         
-        return a._id.toString().localeCompare(b._id.toString());
+        return String(a.id).localeCompare(String(b.id));
       });
 
       // Step 3: Calculate Easy game count
@@ -98,11 +104,10 @@ class ProbabilityService {
       }
 
       // Step 4: Assign Easy Mode to lowest bet games, Hard to rest
-      const bulkOps = [];
       const auditEntries = [];
 
       for (let i = 0; i < totalActiveGames; i++) {
-        const game = activeGames[i];
+        const game = activeGamesPlain[i];
         const assignedMode = i < easyCount ? 'easy' : 'hard';
 
         // If forceOverrideBotManagement is false, skip games that already have botDifficulty set
@@ -122,15 +127,13 @@ class ProbabilityService {
         });
 
         if (needsUpdate) {
-          bulkOps.push({
-            updateOne: {
-              filter: { _id: game._id },
-              update: { $set: { players: updatedPlayers } }
-            }
-          });
+          await Game.update(
+            { players: updatedPlayers },
+            { where: { id: game.id } }
+          );
 
           auditEntries.push({
-            gameId: game._id,
+            gameId: game.gameId || String(game.id),
             assignedMode,
             betAmount: game.betAmount || 0,
             probability: config.winProbability,
@@ -140,25 +143,14 @@ class ProbabilityService {
         }
       }
 
-      // Batched update
-      if (bulkOps.length > 0) {
-        // Execute in batches of 500 to avoid locking
-        const batchSize = 500;
-        for (let i = 0; i < bulkOps.length; i += batchSize) {
-          const batch = bulkOps.slice(i, i + batchSize);
-          await Game.bulkWrite(batch, { ordered: false });
-        }
-
-        // Insert audit entries if any
+      // Insert audit entries if any
+      if (auditEntries.length > 0) {
         try {
-          if (auditEntries.length > 0) {
-            await ProbabilityAudit.insertMany(auditEntries, { ordered: false });
-          }
+          await ProbabilityAudit.bulkCreate(auditEntries);
         } catch (auditErr) {
           logger.warn('Probability Manager: failed to write audit entries', auditErr);
         }
-
-        logger.info(`Probability Manager: Recalculated and updated ${bulkOps.length} games. Total: ${totalActiveGames}, Easy: ${easyCount}, Probability: ${config.winProbability}%`);
+        logger.info(`Probability Manager: Recalculated and updated ${auditEntries.length} games. Total: ${totalActiveGames}, Easy: ${easyCount}, Probability: ${config.winProbability}%`);
       }
 
     } catch (error) {

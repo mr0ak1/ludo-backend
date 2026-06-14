@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const chatRepository = require('../repositories/chatRepository');
 const gameRepository = require('../repositories/gameRepository');
 const ApiError = require('../utils/ApiError');
@@ -15,7 +14,9 @@ const logger = require('../utils/logger');
 const TERMINAL_GAME_STATUSES = ['completed', 'cancelled', 'surrendered'];
 
 const _isValidGameId = (gameId) => {
-  return mongoose.isValidObjectId(gameId) || (typeof gameId === 'string' && gameId.length === 16);
+  if (typeof gameId === 'number') return true;
+  if (typeof gameId !== 'string') return false;
+  return gameId.length === 16 || /^[0-9a-fA-F]{24}$/.test(gameId) || /^\d+$/.test(gameId);
 };
 
 /** @type {Map<string, { count: number, windowStart: number }>} */

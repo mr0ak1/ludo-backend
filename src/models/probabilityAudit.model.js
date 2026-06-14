@@ -1,12 +1,42 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const probabilityAuditSchema = new mongoose.Schema({
-  gameId: { type: mongoose.Schema.Types.Mixed, required: true },
-  assignedMode: { type: String, required: true },
-  betAmount: { type: Number, required: true },
-  probability: { type: Number, required: true },
-  reason: { type: String, default: 'recalculate' },
-  createdAt: { type: Date, default: Date.now },
-}, { collection: 'probability_audits' });
+class ProbabilityAudit extends Model {}
 
-module.exports = mongoose.model('ProbabilityAudit', probabilityAuditSchema);
+ProbabilityAudit.init(
+  {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    gameId: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+    },
+    assignedMode: {
+      type: DataTypes.STRING(32),
+      allowNull: false,
+    },
+    betAmount: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    probability: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    reason: {
+      type: DataTypes.STRING(255),
+      defaultValue: 'recalculate',
+    },
+  },
+  {
+    sequelize,
+    modelName: 'ProbabilityAudit',
+    tableName: 'probability_audits',
+    timestamps: true, // handles createdAt, updatedAt
+  }
+);
+
+module.exports = ProbabilityAudit;

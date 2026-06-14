@@ -1,31 +1,38 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const lobbyGameSchema = new mongoose.Schema(
+class LobbyGame extends Model {}
+
+LobbyGame.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     entryFee: {
-      type: Number,
-      required: true,
-      min: 0,
+      type: DataTypes.INTEGER,
+      allowNull: false,
     },
     prizeAmount: {
-      type: Number,
-      required: true,
-      min: 0,
+      type: DataTypes.INTEGER,
+      allowNull: false,
     },
     maxPlayers: {
-      type: Number,
-      default: 2,
+      type: DataTypes.INTEGER,
+      defaultValue: 2,
     },
     isActive: {
-      type: Boolean,
-      default: true,
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
     },
   },
   {
+    sequelize,
+    modelName: 'LobbyGame',
+    tableName: 'lobby_games',
     timestamps: true,
   }
 );
-
-const LobbyGame = mongoose.model('LobbyGame', lobbyGameSchema);
 
 module.exports = LobbyGame;

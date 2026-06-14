@@ -204,9 +204,9 @@ class NotificationService {
   async notifyAllUsers(title, body, type = NOTIFICATION_TYPES.SYSTEM_ALERT, data = {}) {
     try {
       const User = require('../models/user.model');
-      const users = await User.find({}, '_id deviceTokens').lean();
+      const users = await User.findAll({ attributes: ['id', 'deviceTokens'] });
       const notificationPromises = users.map(user => 
-        this.createNotification(user._id, type, { title, body, data })
+        this.createNotification(user.id, type, { title, body, data })
       );
       await Promise.all(notificationPromises);
       logger.info(`Sent notification "${title}" to ${users.length} users`);

@@ -375,10 +375,13 @@ const getLobbyGames = async (req, res, next) => {
   try {
     const LobbyGame = require('../models/lobbyGame.model');
     // Only return active games
-    const games = await LobbyGame.find({ isActive: true }).sort({ entryFee: 1 }).lean();
+    const games = await LobbyGame.findAll({
+      where: { isActive: true },
+      order: [['entryFee', 'ASC']],
+    });
     
     res.status(HTTP_STATUS.OK).json(
-      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved successfully', games)
+      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved successfully', games.map(g => g.toJSON()))
     );
   } catch (error) {
     next(error);

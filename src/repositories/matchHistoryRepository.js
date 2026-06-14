@@ -1,4 +1,5 @@
-const mongoose = require('mongoose');
+const { Op } = require('sequelize');
+const { sequelize } = require('../config/db');
 const MatchHistory = require('../models/matchHistory.model');
 const logger = require('../utils/logger');
 const ApiError = require('../utils/ApiError');
@@ -12,8 +13,8 @@ const {
 class MatchHistoryRepository {
   async create(data, options = {}) {
     try {
-      const docs = await MatchHistory.create([data], options);
-      return docs[0];
+      const doc = await MatchHistory.create(data, { transaction: options.transaction });
+      return doc.toJSON();
     } catch (error) {
       logger.error('Error creating match history:', error);
       throw new ApiError(HTTP_STATUS.INTERNAL_SERVER_ERROR, 'Failed to record match history');
@@ -22,7 +23,7 @@ class MatchHistoryRepository {
 
   /**
    * Paginated match history for a user (participant row includes humans and bots).
-   * @param {string} userId
+   * @param {string|number} userId
    * @param {{ page?: number, limit?: number, gameType?: string }} opts
    */
   async findByParticipantUserId(userId, opts = {}) {
@@ -34,27 +35,39 @@ class MatchHistoryRepository {
       );
       const skip = (page - 1) * limit;
 
-      const userOid = new mongoose.Types.ObjectId(userId);
-      const filter = { 'participants.userId': userOid };
-      if (opts.gameType) {
-        filter.gameType = opts.gameType;
+      const numericUserId = parseInt(userId, 10);
+      if (isNaN(numericUserId)) {
+        return {
+          items: [],
+          total: 0,
+          page,
+          limit,
+          pages: 1,
+        };
       }
 
-      const [items, total] = await Promise.all([
-        MatchHistory.find(filter)
-          .sort({ endedAt: -1 })
-          .skip(skip)
-          .limit(limit)
-          .lean(),
-        MatchHistory.countDocuments(filter),
-      ]);
+      const where = {
+        [Op.and]: [
+          sequelize.literal(`JSON_CONTAINS(participants, JSON_OBJECT('userId', ${numericUserId}))`)
+        ]
+      };
+      if (opts.gameType) {
+        where.gameType = opts.gameType;
+      }
+
+      const { count, rows } = await MatchHistory.findAndCountAll({
+        where,
+        order: [['endedAt', 'DESC']],
+        limit,
+        offset: skip,
+      });
 
       return {
-        items,
-        total,
+        items: rows.map(r => r.toJSON()),
+        total: count,
         page,
         limit,
-        pages: Math.ceil(total / limit) || 1,
+        pages: Math.ceil(count / limit) || 1,
       };
     } catch (error) {
       logger.error('Error querying match history:', error);
@@ -67,11 +80,20 @@ class MatchHistoryRepository {
    */
   async countMatchesInRange(userId, start, end) {
     try {
-      const userOid = new mongoose.Types.ObjectId(userId);
-      return MatchHistory.countDocuments({
-        'participants.userId': userOid,
-        endedAt: { $gte: start, $lt: end },
-      });
+      const numericUserId = parseInt(userId, 10);
+      if (isNaN(numericUserId)) return 0;
+
+      const where = {
+        endedAt: {
+          [Op.gte]: start,
+          [Op.lt]: end,
+        },
+        [Op.and]: [
+          sequelize.literal(`JSON_CONTAINS(participants, JSON_OBJECT('userId', ${numericUserId}))`)
+        ]
+      };
+
+      return await MatchHistory.count({ where });
     } catch (error) {
       logger.error('Error counting match history:', error);
       return 0;

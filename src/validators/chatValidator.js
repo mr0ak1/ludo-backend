@@ -1,9 +1,13 @@
 const Joi = require('joi');
 const { CHAT_LIMITS } = require('../constants/chat.constants');
 
-const mongoId = Joi.string().hex().length(24).required().messages({
-  'string.length': 'Invalid id format',
+const mongoId = Joi.alternatives().try(
+  Joi.number().integer().min(1),
+  Joi.string().hex().length(16),
+  Joi.string().hex().length(24)
+).required().messages({
   'any.required': 'Id is required',
+  'any.unknown': 'Invalid id format',
 });
 
 const validateSendMessageBody = (body) =>

@@ -1,42 +1,49 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const chatMessageSchema = new mongoose.Schema(
+class ChatMessage extends Model {}
+
+ChatMessage.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     gameId: {
-      type: String,
-      required: true,
-      index: true,
+      type: DataTypes.STRING(32), // String gameId
+      allowNull: false,
     },
     senderId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
     },
     playerName: {
-      type: String,
-      default: '',
+      type: DataTypes.STRING(100),
+      defaultValue: '',
     },
     message: {
-      type: String,
-      required: true,
+      type: DataTypes.TEXT,
+      allowNull: false,
     },
     messageType: {
-      type: String,
-      enum: ['quick_message', 'text_message'],
-      default: 'text_message',
+      type: DataTypes.ENUM('quick_message', 'text_message'),
+      defaultValue: 'text_message',
     },
     isBot: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
   },
   {
+    sequelize,
+    modelName: 'ChatMessage',
+    tableName: 'chat_messages',
     timestamps: true,
-    collection: 'chatmessages',
+    indexes: [
+      { fields: ['gameId', 'createdAt'] },
+    ],
   }
 );
 
-chatMessageSchema.index({ gameId: 1, createdAt: -1 });
-chatMessageSchema.index({ createdAt: 1 }, { expireAfterSeconds: 604800 });
-
-module.exports = mongoose.model('ChatMessage', chatMessageSchema);
+module.exports = ChatMessage;

@@ -118,7 +118,7 @@ describe('Wallet Validator Tests', () => {
       expect(value.amount).toBe(500);
     });
 
-    it('should reject invalid MongoDB ObjectId', () => {
+    it('should reject invalid user ID', () => {
       const data = {
         userId: 'invalid-id',
         amount: 500,
@@ -128,7 +128,7 @@ describe('Wallet Validator Tests', () => {
       const { error } = walletValidator.validateAddCoins(data);
 
       expect(error).toBeDefined();
-      expect(error.details[0].message).toContain('MongoDB');
+      expect(error.details[0].message).toContain('does not match any of the allowed types');
     });
 
     it('should reject missing user ID', () => {

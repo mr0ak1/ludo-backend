@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+const { sequelize } = require('../config/db');
 const crypto = require('crypto');
 const gameRepository = require('../repositories/gameRepository');
 const userRepository = require('../repositories/userRepository');
@@ -702,20 +702,13 @@ class GameService {
    * @returns {Promise<Object>} Completed game
    */
   async completeGame(gameId, results, options = {}) {
-    const isExternalSession = !!options.session;
-    let session = options.session;
-    let isStandalone = false;
-    if (!isExternalSession) {
-      try {
-        session = await mongoose.startSession();
-      } catch (err) {
-        isStandalone = true;
-      }
-    }
+    const isExternalTx = !!options.transaction;
+    const t = options.transaction || await sequelize.transaction();
 
     let formattedGame;
 
-    const executeLogic = async (sess) => {
+    const executeLogic = async (transaction) => {
+      const opts = { transaction };
       const game = await gameRepository.findById(gameId);
       if (!game) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
@@ -738,13 +731,10 @@ class GameService {
       results.players = playersLean;
       results.winner = winnerStr;
 
-      await gameRepository.completeGame(gameId, results, { session: sess });
+      await gameRepository.completeGame(gameId, results, opts);
 
       // REWARD FORMULA:
       // Winner gets their own entry fee back + 90% of opponent's entry fee
-      // Example: 10 coin bet → winner gets 10 + 9 = 19 coins total
-      //          100 coin bet → winner gets 100 + 90 = 190 coins total
-      // Admin keeps 10% of opponent's fee as commission
       const opponentCount = Math.max(0, numPlayers - 1);
       const rewardAmount =
         game.gameType === 'cash' && winnerStr && entryFee > 0
@@ -775,7 +765,7 @@ class GameService {
           }
         }
         return {
-          userId: new mongoose.Types.ObjectId(uid),
+          userId: parseInt(uid, 10) || uid,
           isBot,
           playerColor,
           placement,
@@ -786,16 +776,16 @@ class GameService {
 
       try {
         await matchHistoryRepository.create({
-          gameId: game._id,
+          gameId: game.gameId || String(game.id),
           gameType: game.gameType,
           betAmount: entryFee,
           duration: durationMs,
           totalMoves,
           participants,
-          winnerId: winnerStr ? new mongoose.Types.ObjectId(winnerStr) : null,
+          winnerId: winnerStr ? (parseInt(winnerStr, 10) || null) : null,
           startedAt: new Date(startedAt),
           endedAt: new Date(),
-        }, { session: sess });
+        }, opts);
       } catch (error) {
         logger.error('Error recording match history:', error);
       }
@@ -811,13 +801,11 @@ class GameService {
             const isWinner = uid === winnerStr;
 
             if (isWinner) {
-              // Winner: unlock wallet AND credit reward coins
-              await walletService.processGameReward(uid, rewardAmount, gameId, sess);
+              await walletService.processGameReward(uid, rewardAmount, gameId, opts);
               logger.info(`[completeGame] Winner ${uid} credited ${rewardAmount} coins (entry: ${entryFee}) for game ${gameId}`);
             } else {
-              // Loser: just unlock their wallet (no coins — entry fee already deducted at game start)
               const walletRepository = require('../repositories/walletRepository');
-              await walletRepository.unlockWallet(uid, typeof sess === 'object' && sess !== null ? sess : undefined);
+              await walletRepository.unlockWallet(uid, opts);
               logger.info(`[completeGame] Loser ${uid} wallet unlocked for game ${gameId}`);
             }
           } catch (error) {
@@ -834,7 +822,6 @@ class GameService {
 
           const isWinner = uid === winnerStr;
           const idx = game.players.indexOf(player);
-          const placement = winIdx >= 0 ? ((idx - winIdx + n) % n) + 1 : idx + 1;
           const tokenColor = TOKEN_COLORS[idx % TOKEN_COLORS.length];
 
           let netCoinsWon = 0;
@@ -853,7 +840,7 @@ class GameService {
             netCoinsLost,
             tokenColor,
             rankPointsDelta: isWinner ? RANK_POINTS_WIN : RANK_POINTS_LOSS,
-          }, { session: sess });
+          }, opts);
         } catch (error) {
           logger.error('Error updating user stats:', error);
         }
@@ -864,36 +851,18 @@ class GameService {
     };
 
     try {
-      if (isExternalSession || isStandalone) {
-        await executeLogic(session);
+      if (isExternalTx) {
+        await executeLogic(t);
       } else {
-        try {
-          await session.withTransaction(async () => {
-            await executeLogic(session);
-          });
-        } catch (txnError) {
-          const isStandaloneTxnError = 
-            txnError.message && 
-            (txnError.message.includes('replica set') || 
-             txnError.message.includes('Transaction numbers') ||
-             txnError.code === 20);
-
-          if (isStandaloneTxnError) {
-            logger.warn('[Mongoose] completeGame: Standalone MongoDB detected. Bypassing transaction.');
-            await executeLogic(null);
-          } else {
-            throw txnError;
-          }
-        }
+        await sequelize.transaction(async (txn) => {
+          await executeLogic(txn);
+        });
       }
+      return formattedGame;
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error completing game:', error);
       throw error;
-    } finally {
-      if (session && !isExternalSession) {
-        session.endSession();
-      }
     }
 
     try {
@@ -1863,8 +1832,8 @@ class GameService {
     logger.info(`Checking win for player ${playerIndex}: hasWon=${hasWon}, tokens=${JSON.stringify(currentPlayer.tokens)}, isHome=${JSON.stringify(currentPlayer.isHome)}`);
 
 
-    const executeApplyMoveLogic = async (sess) => {
-      const opts = sess ? { session: sess } : {};
+    const executeApplyMoveLogic = async (transaction) => {
+      const opts = { transaction };
 
       if (killedOpponent) {
         const victim = gameClone.players[killedOpponent.playerIndex];
@@ -1882,8 +1851,8 @@ class GameService {
           // Human player gets an extra turn (rolled a 6, got a kill, or reached home 57).
           // We increment currentTurnCount and reset turnStartedAt to refresh the turn version and timer.
           await gameRepository.update(gameId, {
-            $inc: { currentTurnCount: 1 },
-            $set: { turnStartedAt: new Date() }
+            currentTurnCount: sequelize.literal('currentTurnCount + 1'),
+            turnStartedAt: new Date()
           }, opts);
         }
       }
@@ -1898,44 +1867,13 @@ class GameService {
       await gameRepository.update(gameId, { diceValue: 0 }, opts);
     };
 
-    let session = null;
-    let isStandalone = false;
     try {
-      session = await mongoose.startSession();
-    } catch (err) {
-      isStandalone = true;
-    }
-
-    try {
-      if (isStandalone) {
-        await executeApplyMoveLogic(null);
-      } else {
-        try {
-          await session.withTransaction(async () => {
-            await executeApplyMoveLogic(session);
-          });
-        } catch (txnError) {
-          const isStandaloneTxnError = 
-            txnError.message && 
-            (txnError.message.includes('replica set') || 
-             txnError.message.includes('Transaction numbers') ||
-             txnError.code === 20);
-
-          if (isStandaloneTxnError) {
-            logger.warn('[Mongoose] _applyMove: Standalone MongoDB detected. Bypassing transaction.');
-            await executeApplyMoveLogic(null);
-          } else {
-            throw txnError;
-          }
-        }
-      }
+      await sequelize.transaction(async (t) => {
+        await executeApplyMoveLogic(t);
+      });
     } catch (error) {
       logger.error('Failed executing updates in _applyMove:', error);
       throw error;
-    } finally {
-      if (session) {
-        session.endSession();
-      }
     }
 
     gameEvents.emit(SERVER_EVENTS.TOKEN_MOVED, {

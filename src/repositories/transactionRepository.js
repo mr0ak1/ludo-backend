@@ -1,3 +1,5 @@
+const { Op } = require('sequelize');
+const { sequelize } = require('../config/db');
 const Transaction = require('../models/transaction.model');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
@@ -11,10 +13,11 @@ class TransactionRepository {
    */
   async create(transactionData, options = {}) {
     try {
-      const transaction = new Transaction(transactionData);
-      await transaction.save(options);
+      const transaction = await Transaction.create(transactionData, {
+        transaction: options.transaction,
+      });
       logger.info(`Transaction created for user: ${transactionData.userId}, Type: ${transactionData.type}`);
-      return transaction.toObject();
+      return transaction.toJSON();
     } catch (error) {
       logger.error('Error creating transaction:', error);
       throw error;
@@ -23,13 +26,19 @@ class TransactionRepository {
 
   /**
    * Find transaction by ID
-   * @param {String} transactionId - Transaction ID
+   * @param {String|Number} transactionId - Transaction ID
    * @returns {Promise<Object|null>} Transaction object or null
    */
   async findById(transactionId) {
     try {
-      const transaction = await Transaction.findById(transactionId).select('-__v');
-      return transaction ? transaction.toObject() : null;
+      const numericId = parseInt(transactionId, 10);
+      let transaction;
+      if (!isNaN(numericId)) {
+        transaction = await Transaction.findByPk(numericId);
+      } else {
+        transaction = await Transaction.findOne({ where: { transactionId } });
+      }
+      return transaction ? transaction.toJSON() : null;
     } catch (error) {
       logger.error('Error finding transaction by ID:', error);
       throw error;
@@ -38,7 +47,7 @@ class TransactionRepository {
 
   /**
    * Find transactions by user ID with pagination
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {Object} pagination - Pagination options (page, limit)
    * @param {Object} filters - Additional filters (type, startDate, endDate)
    * @returns {Promise<Object>} Transactions and total count
@@ -47,46 +56,49 @@ class TransactionRepository {
     try {
       const { page = 1, limit = 20 } = pagination;
       const skip = (page - 1) * limit;
+      const numericUserId = parseInt(userId, 10);
 
-      const query = { userId };
+      const where = { userId: numericUserId };
 
       // Filter by transaction type
       if (filters.type) {
-        query.type = filters.type;
+        where.type = filters.type;
       }
 
       // Filter by date range
       if (filters.startDate || filters.endDate) {
-        query.createdAt = {};
+        where.createdAt = {};
         if (filters.startDate) {
-          query.createdAt.$gte = new Date(filters.startDate);
+          where.createdAt[Op.gte] = new Date(filters.startDate);
         }
         if (filters.endDate) {
-          query.createdAt.$lte = new Date(filters.endDate);
+          where.createdAt[Op.lte] = new Date(filters.endDate);
         }
       }
 
       // Filter by amount range
-      if (filters.minAmount !== undefined) {
-        query.amount = { $gte: filters.minAmount };
-      }
-      if (filters.maxAmount !== undefined) {
-        query.amount = { ...(query.amount || {}), $lte: filters.maxAmount };
+      if (filters.minAmount !== undefined || filters.maxAmount !== undefined) {
+        where.amount = {};
+        if (filters.minAmount !== undefined) {
+          where.amount[Op.gte] = filters.minAmount;
+        }
+        if (filters.maxAmount !== undefined) {
+          where.amount[Op.lte] = filters.maxAmount;
+        }
       }
 
-      const transactions = await Transaction.find(query)
-        .select('-__v')
-        .limit(limit)
-        .skip(skip)
-        .sort({ createdAt: -1 });
-
-      const total = await Transaction.countDocuments(query);
+      const { count, rows } = await Transaction.findAndCountAll({
+        where,
+        limit: parseInt(limit, 10),
+        offset: parseInt(skip, 10),
+        order: [['createdAt', 'DESC']],
+      });
 
       return {
-        transactions: transactions.map(t => t.toObject()),
-        total,
+        transactions: rows.map(t => t.toJSON()),
+        total: count,
         page,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(count / limit),
       };
     } catch (error) {
       logger.error('Error finding transactions by user ID:', error);
@@ -96,18 +108,20 @@ class TransactionRepository {
 
   /**
    * Get transaction history for user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {Number} limit - Number of recent transactions
    * @returns {Promise<Array>} Recent transactions
    */
   async getRecentTransactions(userId, limit = 10) {
     try {
-      const transactions = await Transaction.find({ userId })
-        .select('-__v')
-        .limit(limit)
-        .sort({ createdAt: -1 });
+      const numericUserId = parseInt(userId, 10);
+      const transactions = await Transaction.findAll({
+        where: { userId: numericUserId },
+        limit: parseInt(limit, 10),
+        order: [['createdAt', 'DESC']],
+      });
 
-      return transactions.map(t => t.toObject());
+      return transactions.map(t => t.toJSON());
     } catch (error) {
       logger.error('Error getting recent transactions:', error);
       throw error;
@@ -116,27 +130,28 @@ class TransactionRepository {
 
   /**
    * Get transaction summary by type
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Object>} Summary by transaction type
    */
   async getTransactionSummary(userId) {
     try {
-      const summary = await Transaction.aggregate([
-        { $match: { userId: new (require('mongoose').Types.ObjectId)(userId) } },
-        {
-          $group: {
-            _id: '$type',
-            count: { $sum: 1 },
-            totalAmount: { $sum: '$amount' },
-          },
-        },
-      ]);
+      const numericUserId = parseInt(userId, 10);
+      const summary = await Transaction.findAll({
+        where: { userId: numericUserId },
+        attributes: [
+          'type',
+          [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
+          [sequelize.fn('SUM', sequelize.col('amount')), 'totalAmount'],
+        ],
+        group: ['type'],
+        raw: true,
+      });
 
       const result = {};
       summary.forEach(item => {
-        result[item._id] = {
-          count: item.count,
-          totalAmount: item.totalAmount,
+        result[item.type] = {
+          count: parseInt(item.count, 10) || 0,
+          totalAmount: parseInt(item.totalAmount, 10) || 0,
         };
       });
 
@@ -149,35 +164,26 @@ class TransactionRepository {
 
   /**
    * Get total coins earned/spent for user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Object>} Earnings and spending totals
    */
   async getUserCoinStats(userId) {
     try {
-      const stats = await Transaction.aggregate([
-        { $match: { userId: new (require('mongoose').Types.ObjectId)(userId) } },
-        {
-          $group: {
-            _id: null,
-            totalEarned: {
-              $sum: {
-                $cond: [{ $gt: ['$amount', 0] }, '$amount', 0],
-              },
-            },
-            totalSpent: {
-              $sum: {
-                $cond: [{ $lt: ['$amount', 0] }, { $abs: ['$amount'] }, 0],
-              },
-            },
-            transactionCount: { $sum: 1 },
-          },
-        },
-      ]);
+      const numericUserId = parseInt(userId, 10);
+      const stats = await Transaction.findOne({
+        where: { userId: numericUserId },
+        attributes: [
+          [sequelize.literal("COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)"), 'totalEarned'],
+          [sequelize.literal("COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0)"), 'totalSpent'],
+          [sequelize.fn('COUNT', sequelize.col('id')), 'transactionCount'],
+        ],
+        raw: true,
+      });
 
-      return stats[0] || {
-        totalEarned: 0,
-        totalSpent: 0,
-        transactionCount: 0,
+      return {
+        totalEarned: parseInt(stats.totalEarned, 10) || 0,
+        totalSpent: parseInt(stats.totalSpent, 10) || 0,
+        transactionCount: parseInt(stats.transactionCount, 10) || 0,
       };
     } catch (error) {
       logger.error('Error getting coin stats:', error);
@@ -196,37 +202,36 @@ class TransactionRepository {
       const { page = 1, limit = 20 } = pagination;
       const skip = (page - 1) * limit;
 
-      const query = {};
-      if (filters.type) query.type = filters.type;
-      if (filters.userId) query.userId = filters.userId;
+      const where = {};
+      if (filters.type) where.type = filters.type;
+      if (filters.userId) where.userId = parseInt(filters.userId, 10);
       if (filters.reason) {
-        query.reason = { $regex: filters.reason, $options: 'i' };
+        where.reason = { [Op.like]: `%${filters.reason}%` };
       }
 
       // Date range filter
       if (filters.startDate || filters.endDate) {
-        query.createdAt = {};
+        where.createdAt = {};
         if (filters.startDate) {
-          query.createdAt.$gte = new Date(filters.startDate);
+          where.createdAt[Op.gte] = new Date(filters.startDate);
         }
         if (filters.endDate) {
-          query.createdAt.$lte = new Date(filters.endDate);
+          where.createdAt[Op.lte] = new Date(filters.endDate);
         }
       }
 
-      const transactions = await Transaction.find(query)
-        .select('-__v')
-        .limit(limit)
-        .skip(skip)
-        .sort({ createdAt: -1 });
-
-      const total = await Transaction.countDocuments(query);
+      const { count, rows } = await Transaction.findAndCountAll({
+        where,
+        limit: parseInt(limit, 10),
+        offset: parseInt(skip, 10),
+        order: [['createdAt', 'DESC']],
+      });
 
       return {
-        transactions: transactions.map(t => t.toObject()),
-        total,
+        transactions: rows.map(t => t.toJSON()),
+        total: count,
         page,
-        pages: Math.ceil(total / limit),
+        pages: Math.ceil(count / limit),
       };
     } catch (error) {
       logger.error('Error finding transactions:', error);
@@ -244,12 +249,14 @@ class TransactionRepository {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - days);
 
-      const result = await Transaction.deleteMany({
-        createdAt: { $lt: cutoffDate },
+      const deletedCount = await Transaction.destroy({
+        where: {
+          createdAt: { [Op.lt]: cutoffDate },
+        },
       });
 
-      logger.info(`Deleted ${result.deletedCount} old transactions older than ${days} days`);
-      return result;
+      logger.info(`Deleted ${deletedCount} old transactions older than ${days} days`);
+      return { deletedCount };
     } catch (error) {
       logger.error('Error deleting old transactions:', error);
       throw error;
@@ -265,14 +272,15 @@ class TransactionRepository {
    */
   async findByDateRange(startDate, endDate, limit = 1000) {
     try {
-      const transactions = await Transaction.find({
-        createdAt: { $gte: startDate, $lte: endDate },
-      })
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .lean();
+      const transactions = await Transaction.findAll({
+        where: {
+          createdAt: { [Op.gte]: startDate, [Op.lte]: endDate },
+        },
+        order: [['createdAt', 'DESC']],
+        limit: parseInt(limit, 10),
+      });
 
-      return transactions;
+      return transactions.map(t => t.toJSON());
     } catch (error) {
       logger.error('Error finding transactions by date range:', error);
       return [];
@@ -286,12 +294,12 @@ class TransactionRepository {
    */
   async findRecent(limit = 100) {
     try {
-      const transactions = await Transaction.find()
-        .sort({ createdAt: -1 })
-        .limit(limit)
-        .lean();
+      const transactions = await Transaction.findAll({
+        order: [['createdAt', 'DESC']],
+        limit: parseInt(limit, 10),
+      });
 
-      return transactions;
+      return transactions.map(t => t.toJSON());
     } catch (error) {
       logger.error('Error finding recent transactions:', error);
       return [];

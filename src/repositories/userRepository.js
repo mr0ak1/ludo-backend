@@ -1,4 +1,5 @@
-const mongoose = require('mongoose');
+const { Op } = require('sequelize');
+const { sequelize } = require('../config/db');
 const User = require('../models/user.model');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
@@ -12,13 +13,12 @@ class UserRepository {
    */
   async create(userData) {
     try {
-      const user = new User(userData);
-      await user.save();
-      logger.info(`User created: ${user._id}`);
-      return user.toObject();
+      const user = await User.create(userData);
+      logger.info(`User created: ${user.id}`);
+      return user.toJSON();
     } catch (error) {
-      if (error.code === 11000) {
-        const field = Object.keys(error.keyPattern)[0];
+      if (error.name === 'SequelizeUniqueConstraintError') {
+        const field = error.errors[0]?.path || 'field';
         throw new ApiError(HTTP_STATUS.CONFLICT, `User with this ${field} already exists`);
       }
       logger.error('Error creating user:', error);
@@ -28,13 +28,15 @@ class UserRepository {
 
   /**
    * Find user by ID
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Object|null>} User object or null
    */
   async findById(userId) {
     try {
-      const user = await User.findById(userId).select('-__v');
-      return user ? user.toObject() : null;
+      const numericId = parseInt(userId, 10);
+      if (isNaN(numericId)) return null;
+      const user = await User.findByPk(numericId);
+      return user ? user.toJSON() : null;
     } catch (error) {
       logger.error('Error finding user by ID:', error);
       throw error;
@@ -48,8 +50,8 @@ class UserRepository {
    */
   async findByPhone(phone) {
     try {
-      const user = await User.findOne({ phone: phone.toLowerCase() }).select('-__v');
-      return user ? user.toObject() : null;
+      const user = await User.findOne({ where: { phone: phone.toLowerCase() } });
+      return user ? user.toJSON() : null;
     } catch (error) {
       logger.error('Error finding user by phone:', error);
       throw error;
@@ -63,8 +65,8 @@ class UserRepository {
    */
   async findByReferralCode(referralCode) {
     try {
-      const user = await User.findOne({ referralCode: referralCode.toUpperCase() }).select('-__v');
-      return user ? user.toObject() : null;
+      const user = await User.findOne({ where: { referralCode: referralCode.toUpperCase() } });
+      return user ? user.toJSON() : null;
     } catch (error) {
       logger.error('Error finding user by referral code:', error);
       throw error;
@@ -78,8 +80,8 @@ class UserRepository {
    */
   async findByFirebaseUid(firebaseUid) {
     try {
-      const user = await User.findOne({ firebaseUid }).select('-__v');
-      return user ? user.toObject() : null;
+      const user = await User.findOne({ where: { firebaseUid } });
+      return user ? user.toJSON() : null;
     } catch (error) {
       logger.error('Error finding user by Firebase UID:', error);
       throw error;
@@ -93,8 +95,8 @@ class UserRepository {
    */
   async findByEmail(email) {
     try {
-      const user = await User.findOne({ email: email.toLowerCase() }).select('-__v');
-      return user ? user.toObject() : null;
+      const user = await User.findOne({ where: { email: email.toLowerCase() } });
+      return user ? user.toJSON() : null;
     } catch (error) {
       logger.error('Error finding user by email:', error);
       throw error;
@@ -103,30 +105,27 @@ class UserRepository {
 
   /**
    * Update user by ID
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {Object} updateData - Data to update
    * @returns {Promise<Object>} Updated user
    */
   async update(userId, updateData) {
     try {
-      // Prevent updating sensitive fields
-      const restrictedFields = ['firebaseUid', 'isBanned', 'isSuspended'];
-      restrictedFields.forEach(field => delete updateData[field]);
-
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { ...updateData, updatedAt: new Date() },
-        { new: true, runValidators: true }
-      ).select('-__v');
-
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
       if (!user) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
+      // Prevent updating sensitive fields
+      const restrictedFields = ['firebaseUid', 'isBanned', 'isSuspended'];
+      restrictedFields.forEach(field => delete updateData[field]);
+
+      await user.update(updateData);
       logger.info(`User updated: ${userId}`);
-      return user.toObject();
+      return user.toJSON();
     } catch (error) {
-      if (error.name === 'ValidationError') {
+      if (error.name === 'SequelizeValidationError') {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, error.message);
       }
       logger.error('Error updating user:', error);
@@ -136,18 +135,18 @@ class UserRepository {
 
   /**
    * Increment referral earnings
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {Number} amount - Amount to increment
    * @returns {Promise<Object>} Updated user
    */
   async incrementReferralEarnings(userId, amount) {
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { $inc: { referralEarnings: amount }, $set: { updatedAt: new Date() } },
-        { new: true }
-      ).select('-__v');
-      return user ? user.toObject() : null;
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
+      if (!user) return null;
+      await user.increment({ referralEarnings: amount });
+      await user.reload();
+      return user.toJSON();
     } catch (error) {
       logger.error('Error incrementing referral earnings:', error);
       throw error;
@@ -156,13 +155,14 @@ class UserRepository {
 
   /**
    * Delete user by ID
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<void>}
    */
   async delete(userId) {
     try {
-      const user = await User.findByIdAndDelete(userId);
-      if (!user) {
+      const numericId = parseInt(userId, 10);
+      const rowsDeleted = await User.destroy({ where: { id: numericId } });
+      if (rowsDeleted === 0) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
       logger.info(`User deleted: ${userId}`);
@@ -187,79 +187,66 @@ class UserRepository {
       if (filters.isBanned !== undefined) query.isBanned = filters.isBanned;
       if (filters.isSuspended !== undefined) query.isSuspended = filters.isSuspended;
       if (filters.search) {
-        query.$or = [
-          { phone: { $regex: filters.search, $options: 'i' } },
-          { name: { $regex: filters.search, $options: 'i' } },
-          { email: { $regex: filters.search, $options: 'i' } },
+        query[Op.or] = [
+          { phone: { [Op.like]: `%${filters.search}%` } },
+          { name: { [Op.like]: `%${filters.search}%` } },
+          { email: { [Op.like]: `%${filters.search}%` } },
         ];
       }
 
-      let sortOptions = { createdAt: -1 };
+      let sortDirection = 'DESC';
+      let sortField = 'createdAt';
       
       if (filters.sortBy) {
         switch (filters.sortBy) {
           case 'registration_desc':
-            sortOptions = { createdAt: -1 };
+            sortField = 'createdAt';
+            sortDirection = 'DESC';
             break;
           case 'registration_asc':
-            sortOptions = { createdAt: 1 };
+            sortField = 'createdAt';
+            sortDirection = 'ASC';
             break;
         }
       }
 
       if (filters.sortBy === 'wallet_desc' || filters.sortBy === 'wallet_asc') {
-        const sortDirection = filters.sortBy === 'wallet_desc' ? -1 : 1;
+        const Wallet = require('../models/wallet.model');
+        const dir = filters.sortBy === 'wallet_desc' ? 'DESC' : 'ASC';
         
-        const pipeline = [
-          { $match: query },
-          {
-            $lookup: {
-              from: 'wallets',
-              localField: '_id',
-              foreignField: 'userId',
-              as: 'wallet'
-            }
-          },
-          {
-            $addFields: {
-              actualCoins: {
-                $cond: {
-                  if: { $gt: [{ $size: "$wallet" }, 0] },
-                  then: { $arrayElemAt: ["$wallet.coins", 0] },
-                  else: "$coins"
-                }
-              }
-            }
-          },
-          { $sort: { actualCoins: sortDirection } },
-          { $skip: skip },
-          { $limit: limit },
-          { $project: { wallet: 0, actualCoins: 0, __v: 0 } }
-        ];
-        
-        const users = await User.aggregate(pipeline);
-        const total = await User.countDocuments(query);
+        const { count, rows } = await User.findAndCountAll({
+          where: query,
+          include: [{
+            model: Wallet,
+            as: 'wallet',
+            required: false,
+          }],
+          order: [
+            [sequelize.literal('COALESCE(`wallet`.`coins`, `User`.`coins`)'), dir]
+          ],
+          limit,
+          offset: skip,
+        });
         
         return {
-          users,
-          total,
+          users: rows.map(u => u.toJSON()),
+          total: count,
           page,
-          pages: Math.ceil(total / limit),
+          pages: Math.ceil(count / limit) || 1,
         };
       } else {
-        const users = await User.find(query)
-          .select('-__v')
-          .limit(limit)
-          .skip(skip)
-          .sort(sortOptions);
-
-        const total = await User.countDocuments(query);
+        const { count, rows } = await User.findAndCountAll({
+          where: query,
+          limit,
+          offset: skip,
+          order: [[sortField, sortDirection]],
+        });
 
         return {
-          users: users.map(u => u.toObject ? u.toObject() : u),
-          total,
+          users: rows.map(u => u.toJSON()),
+          total: count,
           page,
-          pages: Math.ceil(total / limit),
+          pages: Math.ceil(count / limit) || 1,
         };
       }
     } catch (error) {
@@ -270,28 +257,21 @@ class UserRepository {
 
   /**
    * Ban a user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {String} reason - Ban reason
    * @returns {Promise<Object>} Updated user
    */
   async banUser(userId, reason) {
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        {
-          isBanned: true,
-          banReason: reason,
-          updatedAt: new Date(),
-        },
-        { new: true }
-      ).select('-__v');
-
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
       if (!user) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
+      await user.update({ isBanned: true, banReason: reason });
       logger.warn(`User banned: ${userId}, Reason: ${reason}`);
-      return user.toObject();
+      return user.toJSON();
     } catch (error) {
       logger.error('Error banning user:', error);
       throw error;
@@ -300,28 +280,21 @@ class UserRepository {
 
   /**
    * Suspend a user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {String} reason - Suspension reason
    * @returns {Promise<Object>} Updated user
    */
   async suspendUser(userId, reason) {
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        {
-          isSuspended: true,
-          suspendReason: reason,
-          updatedAt: new Date(),
-        },
-        { new: true }
-      ).select('-__v');
-
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
       if (!user) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
+      await user.update({ isSuspended: true, suspendReason: reason });
       logger.warn(`User suspended: ${userId}, Reason: ${reason}`);
-      return user.toObject();
+      return user.toJSON();
     } catch (error) {
       logger.error('Error suspending user:', error);
       throw error;
@@ -330,27 +303,20 @@ class UserRepository {
 
   /**
    * Unban a user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Object>} Updated user
    */
   async unbanUser(userId) {
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        {
-          isBanned: false,
-          banReason: null,
-          updatedAt: new Date(),
-        },
-        { new: true }
-      ).select('-__v');
-
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
       if (!user) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
+      await user.update({ isBanned: false, banReason: null });
       logger.info(`User unbanned: ${userId}`);
-      return user.toObject();
+      return user.toJSON();
     } catch (error) {
       logger.error('Error unbanning user:', error);
       throw error;
@@ -359,27 +325,20 @@ class UserRepository {
 
   /**
    * Unsuspend a user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<Object>} Updated user
    */
   async unsuspendUser(userId) {
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        {
-          isSuspended: false,
-          suspendReason: null,
-          updatedAt: new Date(),
-        },
-        { new: true }
-      ).select('-__v');
-
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
       if (!user) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
+      await user.update({ isSuspended: false, suspendReason: null });
       logger.info(`User unsuspended: ${userId}`);
-      return user.toObject();
+      return user.toJSON();
     } catch (error) {
       logger.error('Error unsuspending user:', error);
       throw error;
@@ -388,37 +347,39 @@ class UserRepository {
 
   /**
    * Update user's last active timestamp
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @returns {Promise<void>}
    */
   async updateLastActive(userId) {
     try {
-      await User.findByIdAndUpdate(userId, { lastActive: new Date() });
+      const numericId = parseInt(userId, 10);
+      await User.update({ lastActive: new Date() }, { where: { id: numericId } });
     } catch (error) {
       logger.error('Error updating last active:', error);
-      // Don't throw - this is non-critical
     }
   }
 
   /**
    * Add device token to user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {String} deviceToken - Firebase device token
    * @returns {Promise<Object>} Updated user
    */
   async addDeviceToken(userId, deviceToken) {
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { $addToSet: { deviceTokens: deviceToken } },
-        { new: true }
-      ).select('-__v');
-
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
       if (!user) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
-      return user.toObject();
+      const tokens = Array.isArray(user.deviceTokens) ? [...user.deviceTokens] : [];
+      if (!tokens.includes(deviceToken)) {
+        tokens.push(deviceToken);
+      }
+
+      await user.update({ deviceTokens: tokens });
+      return user.toJSON();
     } catch (error) {
       logger.error('Error adding device token:', error);
       throw error;
@@ -427,23 +388,23 @@ class UserRepository {
 
   /**
    * Remove device token from user
-   * @param {String} userId - User ID
+   * @param {String|Number} userId - User ID
    * @param {String} deviceToken - Firebase device token
    * @returns {Promise<Object>} Updated user
    */
   async removeDeviceToken(userId, deviceToken) {
     try {
-      const user = await User.findByIdAndUpdate(
-        userId,
-        { $pull: { deviceTokens: deviceToken } },
-        { new: true }
-      ).select('-__v');
-
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
       if (!user) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
       }
 
-      return user.toObject();
+      let tokens = Array.isArray(user.deviceTokens) ? [...user.deviceTokens] : [];
+      tokens = tokens.filter(t => t !== deviceToken);
+
+      await user.update({ deviceTokens: tokens });
+      return user.toJSON();
     } catch (error) {
       logger.error('Error removing device token:', error);
       throw error;
@@ -452,19 +413,18 @@ class UserRepository {
 
   /**
    * Find bot users
-   * @param {Object} query - MongoDB query filter
+   * @param {Object} query - Sequelize query filter
    * @param {Number} limit - Max number of bots to return
    * @returns {Promise<Array>} Array of bot users
    */
   async findBots(query = {}, limit = 1) {
     try {
-      const defaultQuery = { isBot: true, ...query };
-      const bots = await User.find(defaultQuery)
-        .select('-__v')
-        .limit(limit)
-        .sort({ createdAt: 1 });
-
-      return bots.map(bot => bot.toObject());
+      const bots = await User.findAll({
+        where: { isBot: true, ...query },
+        limit,
+        order: [['createdAt', 'ASC']],
+      });
+      return bots.map(bot => bot.toJSON());
     } catch (error) {
       logger.error('Error finding bots:', error);
       throw error;
@@ -473,19 +433,20 @@ class UserRepository {
 
   /**
    * Lightweight lookup: userId -> isBot
-   * @param {string[]} userIds
+   * @param {string[]|number[]} userIds
    * @returns {Promise<Record<string, { isBot: boolean }>>}
    */
   async getIsBotMapByIds(userIds) {
     if (!userIds || userIds.length === 0) return {};
     try {
-      const oids = userIds.map((id) => new mongoose.Types.ObjectId(id));
-      const rows = await User.find({ _id: { $in: oids } })
-        .select('_id isBot')
-        .lean();
+      const numericIds = userIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id));
+      const rows = await User.findAll({
+        where: { id: { [Op.in]: numericIds } },
+        attributes: ['id', 'isBot'],
+      });
       const map = {};
       for (const r of rows) {
-        map[r._id.toString()] = { isBot: !!r.isBot };
+        map[r.id.toString()] = { isBot: !!r.isBot };
       }
       return map;
     } catch (error) {
@@ -495,16 +456,15 @@ class UserRepository {
   }
 
   /**
-   * Update cumulative stats after a ranked/casual game (Cluster 9).
-   * Skips bots.
-   * @param {string} userId
+   * Update cumulative stats after a ranked/casual game.
+   * @param {string|number} userId
    * @param {{ won: boolean, netCoinsWon?: number, netCoinsLost?: number, tokenColor?: string|null, rankPointsDelta: number }} delta
    */
   async updateGameStats(userId, delta, options = {}) {
+    const t = options.transaction;
     try {
-      const user = await User.findById(userId).session(options.session).select(
-        'wins losses totalGames winRate isBot currentWinStreak bestWinStreak favoriteTokenColor tokenColorWinCounts rankPoints totalCoinsWon totalCoinsLost'
-      );
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId, { transaction: t });
       if (!user || user.isBot) {
         return null;
       }
@@ -518,10 +478,9 @@ class UserRepository {
       const newStreak = won ? (user.currentWinStreak || 0) + 1 : 0;
       const best = Math.max(user.bestWinStreak || 0, newStreak);
 
-      const colorCounts =
-        user.tokenColorWinCounts && typeof user.tokenColorWinCounts === 'object'
-          ? { ...user.tokenColorWinCounts }
-          : {};
+      const colorCounts = (user.tokenColorWinCounts && typeof user.tokenColorWinCounts === 'object')
+        ? { ...user.tokenColorWinCounts }
+        : {};
       if (won && delta.tokenColor) {
         colorCounts[delta.tokenColor] = (colorCounts[delta.tokenColor] || 0) + 1;
       }
@@ -537,30 +496,21 @@ class UserRepository {
       const incCoinsWon = Math.max(0, Number(delta.netCoinsWon) || 0);
       const incCoinsLost = Math.max(0, Number(delta.netCoinsLost) || 0);
 
-      const updated = await User.findByIdAndUpdate(
-        userId,
-        {
-          $inc: {
-            wins: won ? 1 : 0,
-            losses: won ? 0 : 1,
-            totalGames: 1,
-            rankPoints: delta.rankPointsDelta || 0,
-            totalCoinsWon: incCoinsWon,
-            totalCoinsLost: incCoinsLost,
-          },
-          $set: {
-            winRate: newWinRate,
-            currentWinStreak: newStreak,
-            bestWinStreak: best,
-            favoriteTokenColor: favorite,
-            tokenColorWinCounts: colorCounts,
-            updatedAt: new Date(),
-          },
-        },
-        { new: true, runValidators: true, ...options }
-      ).select('-__v');
+      await user.update({
+        wins: newWins,
+        losses: newLosses,
+        totalGames: newTotal,
+        rankPoints: user.rankPoints + (delta.rankPointsDelta || 0),
+        totalCoinsWon: Number(user.totalCoinsWon) + incCoinsWon,
+        totalCoinsLost: Number(user.totalCoinsLost) + incCoinsLost,
+        winRate: newWinRate,
+        currentWinStreak: newStreak,
+        bestWinStreak: best,
+        favoriteTokenColor: favorite,
+        tokenColorWinCounts: colorCounts,
+      }, { transaction: t });
 
-      return updated ? updated.toObject() : null;
+      return user.toJSON();
     } catch (error) {
       logger.error('Error updating game stats:', error);
       throw error;
@@ -573,7 +523,7 @@ class UserRepository {
    */
   async countAllUsers() {
     try {
-      return await User.countDocuments({ isBot: false });
+      return await User.count({ where: { isBot: false } });
     } catch (error) {
       logger.error('Error counting users:', error);
       return 0;
@@ -586,7 +536,7 @@ class UserRepository {
    */
   async countBannedUsers() {
     try {
-      return await User.countDocuments({ isBanned: true, isBot: false });
+      return await User.count({ where: { isBanned: true, isBot: false } });
     } catch (error) {
       logger.error('Error counting banned users:', error);
       return 0;
@@ -599,7 +549,7 @@ class UserRepository {
    */
   async countSuspendedUsers() {
     try {
-      return await User.countDocuments({ isSuspended: true, isBot: false });
+      return await User.count({ where: { isSuspended: true, isBot: false } });
     } catch (error) {
       logger.error('Error counting suspended users:', error);
       return 0;
@@ -613,9 +563,11 @@ class UserRepository {
   async countDailyActiveUsers() {
     try {
       const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      return await User.countDocuments({
-        lastActive: { $gte: oneDayAgo },
-        isBot: false,
+      return await User.count({
+        where: {
+          lastActive: { [Op.gte]: oneDayAgo },
+          isBot: false,
+        }
       });
     } catch (error) {
       logger.error('Error counting daily active users:', error);

@@ -1,188 +1,174 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 const { GAME_STATUS, GAME_TYPE } = require('../constants/game.constants');
 
-const gameSchema = new mongoose.Schema(
+class Game extends Model {}
+
+Game.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     gameId: {
-      type: String,
-      required: true,
+      type: DataTypes.STRING(32),
       unique: true,
-      default: () => require('crypto').randomBytes(8).toString('hex'),
+      allowNull: false,
+      defaultValue: () => require('crypto').randomBytes(8).toString('hex'),
     },
     type: {
-      type: String,
-      enum: Object.values(GAME_TYPE),
-      required: true,
-      default: 'practice',
+      type: DataTypes.ENUM(...Object.values(GAME_TYPE)),
+      allowNull: false,
+      defaultValue: 'practice',
     },
     gameType: {
-      type: String,
-      enum: Object.values(GAME_TYPE),
+      type: DataTypes.ENUM(...Object.values(GAME_TYPE)),
+      allowNull: true,
     },
     status: {
-      type: String,
-      enum: Object.values(GAME_STATUS),
-      default: 'pending',
+      type: DataTypes.ENUM(...Object.values(GAME_STATUS)),
+      defaultValue: 'pending',
     },
-    players: [
-      {
-        userId: {
-          type: mongoose.Schema.Types.ObjectId,
-          ref: 'User',
-          required: true,
-        },
-        playerName: String,
-        playerColor: String,
-        preferredColor: {
-          type: String,
-          enum: ['red', 'green', 'yellow', 'blue'],
-          default: 'red',
-        },
-        position: Number,
-        tokens: [
-          {
-            tokenId: String,
-            position: Number,
-            isHome: Boolean,
-            completed: Boolean,
-          },
-        ],
-        isHome: {
-          type: [Boolean],
-          default: [false, false, false, false],
-        },
-        isBot: {
-          type: Boolean,
-          default: false,
-        },
-        botDifficulty: {
-          type: String,
-          enum: ['easy', 'medium', 'hard', null],
-          default: null,
-        },
-        placement: {
-          type: Number,
-          default: null,
-        },
-        joinedAt: Date,
-        disconnectedAt: {
-          type: Date,
-          default: null,
-        },
-        isActive: {
-          type: Boolean,
-          default: true,
-        },
-        consecutiveSixes: {
-          type: Number,
-          default: 0,
-        },
-        missedTurns: {
-          type: Number,
-          default: 0,
-        },
+    /**
+     * players stored as JSON:
+     * [{ userId, playerName, playerColor, preferredColor, position, tokens, isHome, isBot, botDifficulty, placement, joinedAt, disconnectedAt, isActive, consecutiveSixes, missedTurns }]
+     */
+    players: {
+      type: DataTypes.JSON,
+      defaultValue: [],
+      get() {
+        const val = this.getDataValue('players');
+        return typeof val === 'string' ? JSON.parse(val) : (val || []);
       },
-    ],
+      set(val) {
+        this.setDataValue('players', val);
+      }
+    },
     currentTurn: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     turnStartedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
     },
     currentTurnCount: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     diceValue: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     winner: {
-      type: mongoose.Schema.Types.ObjectId,
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     results: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      type: DataTypes.JSON,
+      defaultValue: {},
+      get() {
+        const val = this.getDataValue('results');
+        return typeof val === 'string' ? JSON.parse(val) : (val || {});
+      },
+      set(val) {
+        this.setDataValue('results', val);
+      }
     },
     betAmount: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     totalPool: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     boardState: {
-      type: mongoose.Schema.Types.Mixed,
-      default: {},
+      type: DataTypes.JSON,
+      defaultValue: {},
+      get() {
+        const val = this.getDataValue('boardState');
+        return typeof val === 'string' ? JSON.parse(val) : (val || {});
+      },
+      set(val) {
+        this.setDataValue('boardState', val);
+      }
     },
-    moves: [
-      {
-        userId: mongoose.Schema.Types.ObjectId,
-        diceValue: Number,
-        tokenId: String,
-        fromPosition: Number,
-        toPosition: Number,
-        timestamp: Date,
+    moves: {
+      type: DataTypes.JSON,
+      defaultValue: [],
+      get() {
+        const val = this.getDataValue('moves');
+        return typeof val === 'string' ? JSON.parse(val) : (val || []);
       },
-    ],
-    chatMessages: [
-      {
-        senderId: mongoose.Schema.Types.ObjectId,
-        message: String,
-        timestamp: Date,
+      set(val) {
+        this.setDataValue('moves', val);
+      }
+    },
+    chatMessages: {
+      type: DataTypes.JSON,
+      defaultValue: [],
+      get() {
+        const val = this.getDataValue('chatMessages');
+        return typeof val === 'string' ? JSON.parse(val) : (val || []);
       },
-    ],
+      set(val) {
+        this.setDataValue('chatMessages', val);
+      }
+    },
     startedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     endedAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    startTime: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
+    endTime: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     duration: {
-      type: Number,
-      default: 0, // in milliseconds
+      type: DataTypes.BIGINT, // in milliseconds
+      defaultValue: 0,
+    },
+    maxPlayers: {
+      type: DataTypes.INTEGER,
+      defaultValue: 2,
     },
     isBotProcessing: {
-      type: Boolean,
-      default: false,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
   },
   {
+    sequelize,
+    modelName: 'Game',
+    tableName: 'games',
     timestamps: true,
-    collection: 'games',
+    hooks: {
+      beforeValidate(game) {
+        if (game.type && !game.gameType) game.gameType = game.type;
+        if (game.gameType) game.type = game.gameType;
+      },
+    },
+    indexes: [
+      { fields: ['gameId'] },
+      { fields: ['status'] },
+      { fields: ['winner'] },
+      { fields: ['createdAt'] },
+    ],
   }
 );
 
-gameSchema.pre('validate', function (next) {
-  if (this.type && !this.gameType) {
-    this.gameType = this.type;
-  }
-
-  if (this.gameType) {
-    this.type = this.gameType;
-  }
-  next();
-});
-
-// Indexes
-gameSchema.index({ gameId: 1 });
-gameSchema.index({ 'players.userId': 1 });
-gameSchema.index({ status: 1 });
-gameSchema.index({ createdAt: -1 });
-gameSchema.index({ winner: 1 });
-
-module.exports = mongoose.model('Game', gameSchema);
+module.exports = Game;

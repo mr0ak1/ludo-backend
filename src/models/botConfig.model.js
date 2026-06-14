@@ -1,39 +1,54 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const botConfigSchema = new mongoose.Schema({
-  globalDifficulty: {
-    type: String,
-    enum: ['easy', 'medium', 'hard'],
-    default: 'medium'
+class BotConfig extends Model {}
+
+BotConfig.init(
+  {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    globalDifficulty: {
+      type: DataTypes.ENUM('easy', 'medium', 'hard'),
+      defaultValue: 'medium',
+    },
+    hardModeThreshold: {
+      type: DataTypes.INTEGER,
+      defaultValue: 450,
+    },
+    minimumBet: {
+      type: DataTypes.INTEGER,
+      defaultValue: 10,
+    },
+    referrerBonus: {
+      type: DataTypes.INTEGER,
+      defaultValue: 50,
+    },
+    referredBonus: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+    },
+    paymentGatewayKey: {
+      type: DataTypes.STRING(255),
+      defaultValue: '',
+    },
+    upiId: {
+      type: DataTypes.STRING(255),
+      defaultValue: '',
+    },
+    paytmMerchantId: {
+      type: DataTypes.STRING(255),
+      defaultValue: '',
+    },
   },
-  hardModeThreshold: {
-    type: Number,
-    default: 450
-  },
-  minimumBet: {
-    type: Number,
-    default: 10
-  },
-  referrerBonus: {
-    type: Number,
-    default: 50 // Coins given to the person who shared the code
-  },
-  referredBonus: {
-    type: Number,
-    default: 0 // Coins given to the new user who used the code
-  },
-  paymentGatewayKey: {
-    type: String,
-    default: '' // EKQR API Key
-  },
-  upiId: {
-    type: String,
-    default: '' // Manual UPI ID
-  },
-  paytmMerchantId: {
-    type: String,
-    default: '' // Paytm Merchant ID
+  {
+    sequelize,
+    modelName: 'BotConfig',
+    tableName: 'bot_configs',
+    timestamps: true,
   }
-}, { timestamps: true });
+);
 
-module.exports = mongoose.model('BotConfig', botConfigSchema);
+module.exports = BotConfig;

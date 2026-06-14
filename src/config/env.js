@@ -5,7 +5,6 @@ dotenv.config();
 const requiredEnvVars = [
   'PORT',
   'NODE_ENV',
-  'MONGO_URI',
   'JWT_SECRET',
   'JWT_EXPIRE',
   'CLIENT_URL',
@@ -35,8 +34,14 @@ module.exports = {
   isProduction: process.env.NODE_ENV === 'production',
   isTest: process.env.NODE_ENV === 'test',
 
-  // Database
-  mongoUri: process.env.MONGO_URI,
+  // Database (MySQL)
+  db: {
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT, 10) || 3306,
+    user: process.env.DB_USER || 'root',
+    password: process.env.DB_PASS || '',
+    name: process.env.DB_NAME || 'ludo',
+  },
 
   // JWT
   jwtSecret: process.env.JWT_SECRET,

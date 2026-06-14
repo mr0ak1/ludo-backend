@@ -1,92 +1,75 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const participantSchema = new mongoose.Schema(
-  {
-    userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
-    },
-    isBot: {
-      type: Boolean,
-      default: false,
-    },
-    playerColor: {
-      type: String,
-      default: null,
-    },
-    placement: {
-      type: Number,
-      required: true,
-      min: 1,
-    },
-    coinsWon: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    coinsLost: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-  },
-  { _id: false }
-);
+class MatchHistory extends Model {}
 
-const matchHistorySchema = new mongoose.Schema(
+MatchHistory.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     gameId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Game',
-      required: true,
+      type: DataTypes.STRING(32), // String gameId to map Game gameId
+      allowNull: false,
     },
     gameType: {
-      type: String,
-      enum: ['practice', 'cash', 'tournament'],
-      required: true,
+      type: DataTypes.ENUM('practice', 'cash', 'tournament'),
+      allowNull: false,
     },
     betAmount: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     duration: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER, // duration in seconds/ms
+      defaultValue: 0,
     },
     totalMoves: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
+    /**
+     * participants stored as JSON array:
+     * [{ userId, isBot, playerColor, placement, coinsWon, coinsLost }]
+     */
     participants: {
-      type: [participantSchema],
-      required: true,
-      validate: [(v) => Array.isArray(v) && v.length >= 1, 'participants required'],
+      type: DataTypes.JSON,
+      allowNull: false,
+      get() {
+        const val = this.getDataValue('participants');
+        return typeof val === 'string' ? JSON.parse(val) : (val || []);
+      },
+      set(val) {
+        this.setDataValue('participants', val);
+      }
     },
     winnerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     startedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
     },
     endedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
     },
   },
   {
+    sequelize,
+    modelName: 'MatchHistory',
+    tableName: 'match_history',
     timestamps: true,
-    collection: 'match_history',
+    indexes: [
+      { fields: ['winnerId'] },
+      { fields: ['gameType', 'endedAt'] },
+      { fields: ['endedAt'] },
+    ],
   }
 );
 
-matchHistorySchema.index({ 'participants.userId': 1, endedAt: -1 });
-matchHistorySchema.index({ winnerId: 1 });
-matchHistorySchema.index({ gameType: 1, endedAt: -1 });
-matchHistorySchema.index({ endedAt: -1 });
-
-module.exports = mongoose.model('MatchHistory', matchHistorySchema);
+module.exports = MatchHistory;

@@ -1,31 +1,31 @@
-const mongoose = require('mongoose');
+const { Op } = require('sequelize');
+const { sequelize } = require('../config/db');
 const Game = require('../models/game.model');
 const ApiError = require('../utils/ApiError');
 const { HTTP_STATUS } = require('../constants/http.constants');
 const { GAME_STATUS } = require('../constants/game.constants');
 const logger = require('../utils/logger');
 
-function _getQuery(gameId) {
-  if (mongoose.isValidObjectId(gameId)) {
-    return { $or: [{ _id: gameId }, { gameId: gameId }] };
+function _buildWhere(gameId) {
+  const numericId = parseInt(gameId, 10);
+  if (!isNaN(numericId)) {
+    return { [Op.or]: [{ id: numericId }, { gameId: String(gameId) }] };
   }
-  return { gameId: gameId };
+  return { gameId: String(gameId) };
 }
 
 class GameRepository {
   /**
    * Create a new game
-   * @param {Object} gameData - Game data
-   * @returns {Promise<Object>} Created game
    */
   async create(gameData) {
     try {
       const game = await Game.create(gameData);
-      logger.info(`Game created: ${game._id}`);
-      return game;
+      logger.info(`Game created: ${game.id} (gameId=${game.gameId})`);
+      return game.toJSON();
     } catch (error) {
       logger.error('Error creating game:', error);
-      if (error.code === 11000) {
+      if (error.name === 'SequelizeUniqueConstraintError') {
         throw new ApiError(HTTP_STATUS.CONFLICT, 'Game already exists');
       }
       throw error;
@@ -34,13 +34,11 @@ class GameRepository {
 
   /**
    * Find game by ID
-   * @param {String} gameId - Game ID
-   * @returns {Promise<Object>} Game document
    */
   async findById(gameId) {
     try {
-      const game = await Game.findOne(_getQuery(gameId)).populate('players.userId');
-      return game;
+      const game = await Game.findOne({ where: _buildWhere(gameId) });
+      return game ? game.toJSON() : null;
     } catch (error) {
       logger.error('Error finding game:', error);
       throw error;
@@ -49,17 +47,17 @@ class GameRepository {
 
   /**
    * Find active game for user
-   * @param {String} userId - User ID
-   * @returns {Promise<Object>} Active game
    */
   async findActiveGameForUser(userId) {
     try {
-      const game = await Game.findOne({
-        'players.userId': userId,
-        status: GAME_STATUS.ACTIVE,
-      }).populate('players.userId');
-
-      return game;
+      const games = await Game.findAll({
+        where: { status: GAME_STATUS.ACTIVE },
+      });
+      const found = games.find(g => {
+        const players = g.players || [];
+        return players.some(p => String(p.userId) === String(userId));
+      });
+      return found ? found.toJSON() : null;
     } catch (error) {
       logger.error('Error finding active game:', error);
       throw error;
@@ -67,36 +65,30 @@ class GameRepository {
   }
 
   /**
-   * Find games by status
-   * @param {String} status - Game status
-   * @param {Object} pagination - Pagination options
-   * @returns {Promise<Array>} Games list
+   * Find games by status with pagination
    */
   async findByStatus(status, pagination = {}, filters = {}) {
     try {
       const { page = 1, limit = 20 } = pagination;
-      const skip = (page - 1) * limit;
+      const offset = (page - 1) * limit;
 
-      const query = { ...filters };
-      if (status && status !== 'all') {
-        query.status = status;
-      }
+      const where = { ...filters };
+      if (status && status !== 'all') where.status = status;
 
-      const games = await Game.find(query)
-        .skip(skip)
-        .limit(limit)
-        .populate('players.userId')
-        .sort({ createdAt: -1 });
-
-      const total = await Game.countDocuments(query);
+      const { count, rows } = await Game.findAndCountAll({
+        where,
+        order: [['createdAt', 'DESC']],
+        limit,
+        offset,
+      });
 
       return {
-        games,
+        games: rows.map(g => g.toJSON()),
         pagination: {
-          total,
+          total: count,
           page,
           limit,
-          pages: Math.ceil(total / limit) || 1,
+          pages: Math.ceil(count / limit) || 1,
         },
       };
     } catch (error) {
@@ -106,36 +98,27 @@ class GameRepository {
   }
 
   /**
-   * Find waiting games (not full)
-   * @param {Object} pagination - Pagination options
-   * @returns {Promise<Array>} Waiting games
+   * Find waiting games
    */
   async findWaitingGames(pagination = {}) {
     try {
       const { page = 1, limit = 20 } = pagination;
-      const skip = (page - 1) * limit;
+      const offset = (page - 1) * limit;
 
-      const games = await Game.find({
-        status: GAME_STATUS.PENDING,
-        $expr: { $lt: [{ $size: '$players' }, '$maxPlayers'] },
-      })
-        .skip(skip)
-        .limit(limit)
-        .populate('players.userId')
-        .sort({ createdAt: -1 });
-
-      const total = await Game.countDocuments({
-        status: GAME_STATUS.PENDING,
-        $expr: { $lt: [{ $size: '$players' }, '$maxPlayers'] },
+      const { count, rows } = await Game.findAndCountAll({
+        where: { status: GAME_STATUS.PENDING },
+        order: [['createdAt', 'DESC']],
+        limit,
+        offset,
       });
 
       return {
-        games,
+        games: rows.map(g => g.toJSON()),
         pagination: {
-          total,
+          total: count,
           page,
           limit,
-          pages: Math.ceil(total / limit),
+          pages: Math.ceil(count / limit) || 1,
         },
       };
     } catch (error) {
@@ -146,36 +129,32 @@ class GameRepository {
 
   /**
    * Get user's game history
-   * @param {String} userId - User ID
-   * @param {Object} pagination - Pagination options
-   * @returns {Promise<Object>} Game history
    */
   async getUserGameHistory(userId, pagination = {}) {
     try {
       const { page = 1, limit = 20 } = pagination;
-      const skip = (page - 1) * limit;
+      const offset = (page - 1) * limit;
 
-      const games = await Game.find({
-        'players.userId': userId,
-        status: { $in: [GAME_STATUS.COMPLETED, GAME_STATUS.SURRENDERED] },
-      })
-        .skip(skip)
-        .limit(limit)
-        .populate('players.userId')
-        .sort({ endTime: -1 });
-
-      const total = await Game.countDocuments({
-        'players.userId': userId,
-        status: { $in: [GAME_STATUS.COMPLETED, GAME_STATUS.SURRENDERED] },
+      const games = await Game.findAll({
+        where: {
+          status: { [Op.in]: [GAME_STATUS.COMPLETED, GAME_STATUS.SURRENDERED] },
+        },
+        order: [['endedAt', 'DESC']],
       });
 
+      const userGames = games.filter(g =>
+        (g.players || []).some(p => String(p.userId) === String(userId))
+      );
+      const total = userGames.length;
+      const paginated = userGames.slice(offset, offset + limit);
+
       return {
-        games,
+        games: paginated.map(g => g.toJSON()),
         pagination: {
           total,
           page,
           limit,
-          pages: Math.ceil(total / limit),
+          pages: Math.ceil(total / limit) || 1,
         },
       };
     } catch (error) {
@@ -186,24 +165,22 @@ class GameRepository {
 
   /**
    * Update game state
-   * @param {String} gameId - Game ID
-   * @param {Object} updateData - Data to update
-   * @returns {Promise<Object>} Updated game
    */
   async update(gameId, updateData, options = {}) {
     try {
-      const game = await Game.findOneAndUpdate(_getQuery(gameId), updateData, {
-        new: true,
-        runValidators: true,
-        ...options,
-      }).populate('players.userId');
+      const where = _buildWhere(gameId);
+      const [rowsAffected] = await Game.update(updateData, {
+        where,
+        transaction: options.transaction,
+      });
 
-      if (!game) {
+      if (rowsAffected === 0) {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
       }
 
+      const game = await Game.findOne({ where, transaction: options.transaction });
       logger.debug(`Game updated: ${gameId}`);
-      return game;
+      return game.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error updating game:', error);
@@ -213,36 +190,28 @@ class GameRepository {
 
   /**
    * Add player to game
-   * @param {String} gameId - Game ID
-   * @param {Object} playerData - Player data
-   * @returns {Promise<Object>} Updated game
    */
   async addPlayer(gameId, playerData) {
     try {
-      const game = await Game.findOneAndUpdate(
-        _getQuery(gameId),
-        {
-          $push: { 'players': playerData },
-        },
-        { new: true }
-      ).populate('players.userId');
+      const game = await Game.findOne({ where: _buildWhere(gameId) });
+      if (!game) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
 
-      if (!game) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
-      }
+      const players = game.players || [];
+      players.push(playerData);
 
-      // Start game when the configured player count is reached
-      if (game.players.length === game.maxPlayers) {
-        game.status = GAME_STATUS.ACTIVE;
+      const updates = { players };
+      if (players.length >= game.maxPlayers) {
+        updates.status = GAME_STATUS.ACTIVE;
         if (!game.startTime) {
-          game.startTime = new Date();
-          game.turnStartedAt = new Date();
+          updates.startTime = new Date();
+          updates.startedAt = new Date();
+          updates.turnStartedAt = new Date();
         }
-        await game.save();
       }
 
+      await game.update(updates);
       logger.info(`Player added to game ${gameId}`);
-      return game;
+      return game.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error adding player:', error);
@@ -252,58 +221,33 @@ class GameRepository {
 
   /**
    * Update player board state
-   * @param {String} gameId - Game ID
-   * @param {Number} playerIndex - Player index in array
-   * @param {Object} boardData - Board state
-   * @returns {Promise<Object>} Updated game
    */
   async updatePlayerBoard(gameId, playerIndex, boardData, options = {}) {
     try {
-      const updatePath = `players.${playerIndex}`;
-      const updates = {};
+      const game = await Game.findOne({
+        where: _buildWhere(gameId),
+        transaction: options.transaction,
+      });
+      if (!game) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
 
-      if (boardData.tokens !== undefined) {
-        updates[`${updatePath}.tokens`] = boardData.tokens;
-      }
+      const players = game.players || [];
+      if (!players[playerIndex]) throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Invalid player index');
 
-      if (boardData.isHome !== undefined) {
-        updates[`${updatePath}.isHome`] = boardData.isHome;
-      }
+      const player = players[playerIndex];
+      if (boardData.tokens !== undefined) player.tokens = boardData.tokens;
+      if (boardData.isHome !== undefined) player.isHome = boardData.isHome;
+      if (boardData.consecutiveSixes !== undefined) player.consecutiveSixes = boardData.consecutiveSixes;
+      if (boardData.diceCount !== undefined) player.diceCount = boardData.diceCount;
+      if (boardData.disconnectedAt !== undefined) player.disconnectedAt = boardData.disconnectedAt;
+      if (boardData.isActive !== undefined) player.isActive = boardData.isActive;
+      if (boardData.missedTurns !== undefined) player.missedTurns = boardData.missedTurns;
+      players[playerIndex] = player;
 
-      if (boardData.consecutiveSixes !== undefined) {
-        updates[`${updatePath}.consecutiveSixes`] = boardData.consecutiveSixes;
-      }
-
-      if (boardData.diceCount !== undefined) {
-        updates[`${updatePath}.diceCount`] = boardData.diceCount;
-      }
-
-      if (boardData.disconnectedAt !== undefined) {
-        updates[`${updatePath}.disconnectedAt`] = boardData.disconnectedAt;
-      }
-
-      if (boardData.isActive !== undefined) {
-        updates[`${updatePath}.isActive`] = boardData.isActive;
-      }
-
-      if (boardData.missedTurns !== undefined) {
-        updates[`${updatePath}.missedTurns`] = boardData.missedTurns;
-      }
-
-      const game = await Game.findOneAndUpdate(
-        _getQuery(gameId),
-        {
-          $set: updates,
-          $inc: { currentTurnCount: 1 }
-        },
-        { new: true, ...options }
-      ).populate('players.userId');
-
-      if (!game) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
-      }
-
-      return game;
+      await game.update(
+        { players, currentTurnCount: game.currentTurnCount + 1 },
+        { transaction: options.transaction }
+      );
+      return game.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error updating player board:', error);
@@ -313,31 +257,23 @@ class GameRepository {
 
   /**
    * Add move to move history
-   * @param {String} gameId - Game ID
-   * @param {Object} moveData - Move details
-   * @returns {Promise<Object>} Updated game
    */
   async addMove(gameId, moveData, options = {}) {
     try {
-      const game = await Game.findOneAndUpdate(
-        _getQuery(gameId),
-        {
-          $push: {
-            moves: {
-              ...moveData,
-              timestamp: new Date(),
-            },
-          },
-          $inc: { currentTurnCount: 1 }
-        },
-        { new: true, ...options }
-      ).populate('players.userId');
+      const game = await Game.findOne({
+        where: _buildWhere(gameId),
+        transaction: options.transaction,
+      });
+      if (!game) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
 
-      if (!game) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
-      }
+      const moves = game.moves || [];
+      moves.push({ ...moveData, timestamp: new Date() });
 
-      return game;
+      await game.update(
+        { moves, currentTurnCount: game.currentTurnCount + 1 },
+        { transaction: options.transaction }
+      );
+      return game.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error adding move:', error);
@@ -347,29 +283,21 @@ class GameRepository {
 
   /**
    * Update current turn
-   * @param {String} gameId - Game ID
-   * @param {Number} newTurn - New player turn index
-   * @returns {Promise<Object>} Updated game
    */
   async updateCurrentTurn(gameId, newTurn, options = {}) {
     try {
-      const game = await Game.findOneAndUpdate(
-        _getQuery(gameId),
+      const where = _buildWhere(gameId);
+      const [rowsAffected] = await Game.update(
         {
-          $set: {
-            currentTurn: newTurn,
-            turnStartedAt: new Date(),
-          },
-          $inc: { currentTurnCount: 1 }
+          currentTurn: newTurn,
+          turnStartedAt: new Date(),
+          currentTurnCount: sequelize.literal('currentTurnCount + 1'),
         },
-        { new: true, ...options }
-      ).populate('players.userId');
-
-      if (!game) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
-      }
-
-      return game;
+        { where, transaction: options.transaction }
+      );
+      if (rowsAffected === 0) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
+      const game = await Game.findOne({ where, transaction: options.transaction });
+      return game.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error updating current turn:', error);
@@ -379,45 +307,29 @@ class GameRepository {
 
   /**
    * Complete game
-   * @param {String} gameId - Game ID
-   * @param {Object} results - Game results
-   * @returns {Promise<Object>} Updated game
    */
   async completeGame(gameId, results, options = {}) {
     try {
-      const updateSet = {
-        status: GAME_STATUS.COMPLETED,
+      const where = _buildWhere(gameId);
+      const updateData = {
+        status: (results && results.status === 'surrendered') ? GAME_STATUS.SURRENDERED : GAME_STATUS.COMPLETED,
+        endedAt: new Date(),
         endTime: new Date(),
         results,
       };
 
-      if (results && results.winner) {
-        updateSet.winner = results.winner;
-      }
-      
-      if (results && results.players) {
-        updateSet.players = results.players;
-      }
+      if (results && results.winner) updateData.winner = results.winner;
+      if (results && results.players) updateData.players = results.players;
 
-      if (results && results.status === 'surrendered') {
-         updateSet.status = GAME_STATUS.SURRENDERED;
-      }
+      const [rowsAffected] = await Game.update(updateData, {
+        where,
+        transaction: options.transaction,
+      });
+      if (rowsAffected === 0) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
 
-      const game = await Game.findOneAndUpdate(
-        _getQuery(gameId),
-        {
-          $set: updateSet,
-          $inc: { currentTurnCount: 1 }
-        },
-        { new: true, ...options }
-      ).populate('players.userId');
-
-      if (!game) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
-      }
-
+      const game = await Game.findOne({ where, transaction: options.transaction });
       logger.info(`Game completed: ${gameId}`);
-      return game;
+      return game.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error completing game:', error);
@@ -427,31 +339,22 @@ class GameRepository {
 
   /**
    * Surrender game
-   * @param {String} gameId - Game ID
-   * @param {String} userId - User ID
-   * @returns {Promise<Object>} Updated game
    */
   async surrenderGame(gameId, userId, options = {}) {
     try {
-      const game = await Game.findOneAndUpdate(
-        _getQuery(gameId),
-        {
-          $set: {
-            status: GAME_STATUS.SURRENDERED,
-            endTime: new Date(),
-            'results.surrenderedBy': userId,
-          },
-          $inc: { currentTurnCount: 1 }
-        },
-        { new: true, ...options }
-      ).populate('players.userId');
+      const where = _buildWhere(gameId);
+      const game = await Game.findOne({ where, transaction: options.transaction });
+      if (!game) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
 
-      if (!game) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
-      }
+      const results = game.results || {};
+      results.surrenderedBy = userId;
 
+      await game.update(
+        { status: GAME_STATUS.SURRENDERED, endedAt: new Date(), endTime: new Date(), results },
+        { transaction: options.transaction }
+      );
       logger.info(`Game surrendered by ${userId}: ${gameId}`);
-      return game;
+      return game.toJSON();
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error surrendering game:', error);
@@ -460,16 +363,12 @@ class GameRepository {
   }
 
   /**
-   * Delete game (for testing/cleanup)
-   * @param {String} gameId - Game ID
-   * @returns {Promise<Boolean>} Deletion result
+   * Delete game
    */
   async delete(gameId) {
     try {
-      const result = await Game.findOneAndDelete(_getQuery(gameId));
-      if (!result) {
-        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
-      }
+      const rowsDeleted = await Game.destroy({ where: _buildWhere(gameId) });
+      if (rowsDeleted === 0) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Game not found');
       logger.info(`Game deleted: ${gameId}`);
       return true;
     } catch (error) {
@@ -480,34 +379,32 @@ class GameRepository {
   }
 
   /**
-   * Get game statistics
-   * @param {String} userId - User ID
-   * @returns {Promise<Object>} Game statistics
+   * Get user game statistics
    */
   async getUserGameStats(userId) {
     try {
-      const completedGames = await Game.countDocuments({
-        'players.userId': userId,
-        status: GAME_STATUS.COMPLETED,
+      const allGames = await Game.findAll({
+        where: {
+          status: { [Op.in]: [GAME_STATUS.COMPLETED, GAME_STATUS.SURRENDERED] },
+        },
+        attributes: ['id', 'status', 'players', 'results'],
       });
 
-      const winCount = await Game.countDocuments({
-        'results.winner': userId,
-        status: GAME_STATUS.COMPLETED,
-      });
+      const userGames = allGames.filter(g =>
+        (g.players || []).some(p => String(p.userId) === String(userId))
+      );
 
-      const surrenderedCount = await Game.countDocuments({
-        'players.userId': userId,
-        status: GAME_STATUS.SURRENDERED,
-      });
+      const completedGames = userGames.filter(g => g.status === GAME_STATUS.COMPLETED);
+      const wins = completedGames.filter(g => String(g.results && g.results.winner) === String(userId));
+      const surrenderedGames = userGames.filter(g => g.status === GAME_STATUS.SURRENDERED);
 
       return {
-        totalGames: completedGames + surrenderedCount,
-        completedGames,
-        wins: winCount,
-        losses: completedGames - winCount,
-        surrenders: surrenderedCount,
-        winRate: completedGames > 0 ? (winCount / completedGames) * 100 : 0,
+        totalGames: userGames.length,
+        completedGames: completedGames.length,
+        wins: wins.length,
+        losses: completedGames.length - wins.length,
+        surrenders: surrenderedGames.length,
+        winRate: completedGames.length > 0 ? (wins.length / completedGames.length) * 100 : 0,
       };
     } catch (error) {
       logger.error('Error getting game stats:', error);
@@ -517,37 +414,40 @@ class GameRepository {
 
   /**
    * Get leaderboard
-   * @param {Object} pagination - Pagination options
-   * @returns {Promise<Array>} Leaderboard data
    */
   async getLeaderboard(pagination = {}) {
     try {
       const { limit = 50 } = pagination;
+      const User = require('../models/user.model');
 
-      const leaderboard = await Game.aggregate([
-        { $match: { status: GAME_STATUS.COMPLETED } },
-        { $group: { _id: '$results.winner', wins: { $sum: 1 } } },
-        { $sort: { wins: -1 } },
-        { $limit: limit },
-        {
-          $lookup: {
-            from: 'users',
-            localField: '_id',
-            foreignField: '_id',
-            as: 'user',
-          },
-        },
-        { $unwind: '$user' },
-        {
-          $project: {
-            _id: 0,
-            userId: '$_id',
-            name: '$user.name',
-            avatar: '$user.avatar',
-            wins: 1,
-          },
-        },
-      ]);
+      const completedGames = await Game.findAll({
+        where: { status: GAME_STATUS.COMPLETED },
+        attributes: ['results'],
+      });
+
+      // Tally wins by winner userId
+      const winMap = {};
+      for (const g of completedGames) {
+        const winner = g.results && g.results.winner;
+        if (winner) {
+          winMap[winner] = (winMap[winner] || 0) + 1;
+        }
+      }
+
+      // Sort by wins descending, take top N
+      const sorted = Object.entries(winMap)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, limit);
+
+      const leaderboard = [];
+      for (const [userId, wins] of sorted) {
+        const user = await User.findByPk(parseInt(userId, 10), {
+          attributes: ['id', 'uuid', 'name', 'avatar'],
+        });
+        if (user) {
+          leaderboard.push({ userId: user.id, name: user.name, avatar: user.avatar, wins });
+        }
+      }
 
       return leaderboard;
     } catch (error) {
@@ -558,11 +458,10 @@ class GameRepository {
 
   /**
    * Count total games
-   * @returns {Promise<Number>} Total game count
    */
   async countAllGames() {
     try {
-      return await Game.countDocuments();
+      return await Game.count();
     } catch (error) {
       logger.error('Error counting games:', error);
       return 0;
@@ -571,19 +470,25 @@ class GameRepository {
 
   /**
    * Get count of live playing human users
-   * @returns {Promise<Number>} Live players count
    */
   async getLivePlayingUsersCount() {
     try {
       const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-      const result = await Game.aggregate([
-        { $match: { status: GAME_STATUS.ACTIVE, updatedAt: { $gte: fifteenMinutesAgo } } },
-        { $unwind: '$players' },
-        { $match: { 'players.isBot': false } },
-        { $group: { _id: '$players.userId' } },
-        { $count: 'livePlayers' }
-      ]);
-      return result.length > 0 ? result[0].livePlayers : 0;
+      const activeGames = await Game.findAll({
+        where: {
+          status: GAME_STATUS.ACTIVE,
+          updatedAt: { [Op.gte]: fifteenMinutesAgo },
+        },
+        attributes: ['players'],
+      });
+
+      const humanPlayerIds = new Set();
+      for (const g of activeGames) {
+        (g.players || []).forEach(p => {
+          if (!p.isBot) humanPlayerIds.add(String(p.userId));
+        });
+      }
+      return humanPlayerIds.size;
     } catch (error) {
       logger.error('Error getting live playing users count:', error);
       return 0;
@@ -592,18 +497,16 @@ class GameRepository {
 
   /**
    * Get total gameplay amount for today
-   * @returns {Promise<Number>} Today's total bet amount
    */
   async getTodayGameplayAmount() {
     try {
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
 
-      const result = await Game.aggregate([
-        { $match: { createdAt: { $gte: startOfDay } } },
-        { $group: { _id: null, totalAmount: { $sum: '$betAmount' } } }
-      ]);
-      return result.length > 0 ? result[0].totalAmount : 0;
+      const result = await Game.sum('betAmount', {
+        where: { createdAt: { [Op.gte]: startOfDay } },
+      });
+      return result || 0;
     } catch (error) {
       logger.error('Error getting today gameplay amount:', error);
       return 0;

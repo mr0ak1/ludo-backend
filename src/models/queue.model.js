@@ -1,86 +1,92 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const queueSchema = new mongoose.Schema(
+class Queue extends Model {}
+
+Queue.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
       unique: true,
     },
     gameType: {
-      type: String,
-      enum: ['practice', 'cash', 'tournament'],
-      required: true,
+      type: DataTypes.ENUM('practice', 'cash', 'tournament'),
+      allowNull: false,
     },
     betAmount: {
-      type: Number,
-      default: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     status: {
-      type: String,
-      enum: ['waiting', 'matched', 'cancelled', 'expired'],
-      default: 'waiting',
+      type: DataTypes.ENUM('waiting', 'matched', 'cancelled', 'expired'),
+      defaultValue: 'waiting',
     },
+    /**
+     * preferences stored as JSON:
+     * { botDifficulty, allowBot }
+     */
     preferences: {
-      botDifficulty: {
-        type: String,
-        enum: ['easy', 'medium', 'hard'],
-        default: 'medium',
+      type: DataTypes.JSON,
+      defaultValue: {},
+      get() {
+        const val = this.getDataValue('preferences');
+        return typeof val === 'string' ? JSON.parse(val) : (val || {});
       },
-      allowBot: {
-        type: Boolean,
-        default: true,
-      },
+      set(val) {
+        this.setDataValue('preferences', val);
+      }
     },
     joinedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: DataTypes.NOW,
     },
     matchedAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     matchedPlayerId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      default: null,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: true,
+      defaultValue: null,
     },
     matchedGameId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Game',
-      default: null,
+      type: DataTypes.STRING(32), // String gameId
+      allowNull: true,
+      defaultValue: null,
     },
     cancelledAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     cancelReason: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
     },
     expiresAt: {
-      type: Date,
-      default: () => new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.DATE,
+      defaultValue: () => new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
     },
   },
   {
+    sequelize,
+    modelName: 'Queue',
+    tableName: 'queues',
     timestamps: true,
-    collection: 'queues',
+    indexes: [
+      { fields: ['userId'] },
+      { fields: ['status'] },
+      { fields: ['gameType', 'betAmount', 'status'] },
+    ],
   }
 );
 
-// TTL Index - Auto delete after expiresAt
-queueSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
-
-// Regular Indexes
-queueSchema.index({ userId: 1 });
-queueSchema.index({ status: 1 });
-queueSchema.index({ gameType: 1, betAmount: 1, status: 1 });
-queueSchema.index({ joinedAt: -1 });
-
-module.exports = mongoose.model('Queue', queueSchema);
+module.exports = Queue;

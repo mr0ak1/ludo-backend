@@ -1,42 +1,46 @@
+const { Op } = require('sequelize');
 const Notification = require('../models/notification.model');
-const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 
 class NotificationRepository {
   async create(data) {
     const doc = await Notification.create(data);
-    return doc.toObject();
+    return doc.toJSON();
   }
 
   async findById(notificationId) {
-    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+    const numericId = parseInt(notificationId, 10);
+    if (isNaN(numericId)) {
       return null;
     }
-    const doc = await Notification.findById(notificationId).lean();
-    return doc;
+    const doc = await Notification.findByPk(numericId);
+    return doc ? doc.toJSON() : null;
   }
 
   /**
    * Paginated list for a user (newest first).
    */
   async findByUserId(userId, { page = 1, limit = 20, unreadOnly = false } = {}) {
-    const filter = { userId };
+    const numericUserId = parseInt(userId, 10);
+    const filter = { userId: numericUserId };
     if (unreadOnly) {
       filter.isRead = false;
     }
     const skip = (page - 1) * limit;
 
-    const [items, total] = await Promise.all([
-      Notification.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
-      Notification.countDocuments(filter),
-    ]);
+    const { count, rows } = await Notification.findAndCountAll({
+      where: filter,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit, 10),
+      offset: parseInt(skip, 10),
+    });
 
     return {
-      notifications: items,
+      notifications: rows.map(r => r.toJSON()),
       pagination: {
-        total,
+        total: count,
         page,
-        pages: Math.ceil(total / limit) || 1,
+        pages: Math.ceil(count / limit) || 1,
         limit,
       },
     };
@@ -47,39 +51,56 @@ class NotificationRepository {
    * @returns {Object|null} updated lean doc
    */
   async markAsRead(userId, notificationId) {
-    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+    const numericId = parseInt(notificationId, 10);
+    const numericUserId = parseInt(userId, 10);
+    if (isNaN(numericId) || isNaN(numericUserId)) {
       return null;
     }
-    const updated = await Notification.findOneAndUpdate(
-      { _id: notificationId, userId },
-      { $set: { isRead: true, readAt: new Date() } },
-      { new: true }
-    ).lean();
 
-    return updated;
+    const notification = await Notification.findOne({
+      where: { id: numericId, userId: numericUserId }
+    });
+    if (!notification) {
+      return null;
+    }
+
+    await notification.update({
+      isRead: true,
+      readAt: new Date()
+    });
+
+    return notification.toJSON();
   }
 
   /**
    * Manual / job cleanup (Mongo TTL also removes by expiresAt).
    */
   async deleteByExpiresAtBefore(date) {
-    const res = await Notification.deleteMany({ expiresAt: { $lt: date } });
-    logger.info(`Notification cleanup: removed ${res.deletedCount} documents`);
-    return res.deletedCount;
+    const deletedCount = await Notification.destroy({
+      where: {
+        expiresAt: { [Op.lt]: date }
+      }
+    });
+    logger.info(`Notification cleanup: removed ${deletedCount} documents`);
+    return deletedCount;
   }
 
   /**
    * Update push delivery metadata on a notification document.
    */
   async updateDeliveryMeta(notificationId, { isSent, sentAt, sendError } = {}) {
-    if (!mongoose.Types.ObjectId.isValid(notificationId)) {
+    const numericId = parseInt(notificationId, 10);
+    if (isNaN(numericId)) {
       return null;
     }
-    return Notification.findByIdAndUpdate(
-      notificationId,
-      { $set: { isSent, sentAt, sendError } },
-      { new: true }
-    ).lean();
+
+    const notification = await Notification.findByPk(numericId);
+    if (!notification) {
+      return null;
+    }
+
+    await notification.update({ isSent, sentAt, sendError });
+    return notification.toJSON();
   }
 }
 

@@ -187,11 +187,11 @@ class AuthService {
           totalGames: 0,
           winRate: 0,
           referralCode: newReferralCode,
-          referredBy: referringUser ? referringUser._id : null,
+          referredById: referringUser ? referringUser.id : null,
         });
 
-        await walletService.initializeWallet(user._id, initialCoins);
-        logger.info(`New OTP user created: ${user._id}`);
+        await walletService.initializeWallet(user.id, initialCoins);
+        logger.info(`New OTP user created: ${user.id}`);
 
         if (referringUser) {
           const BotConfig = require('../models/botConfig.model');
@@ -200,24 +200,24 @@ class AuthService {
           const referredBonusAmount = configObj?.referredBonus ?? 0;
           
           if (referrerBonusAmount > 0) {
-            await walletService.addCoins(referringUser._id, referrerBonusAmount, `Referral bonus for user ${user.phone}`);
-            await userRepository.incrementReferralEarnings(referringUser._id, referrerBonusAmount);
-            logger.info(`Referral bonus of ${referrerBonusAmount} awarded to user ${referringUser._id}`);
+            await walletService.addCoins(referringUser.id, referrerBonusAmount, `Referral bonus for user ${user.phone}`);
+            await userRepository.incrementReferralEarnings(referringUser.id, referrerBonusAmount);
+            logger.info(`Referral bonus of ${referrerBonusAmount} awarded to user ${referringUser.id}`);
           }
           
           if (referredBonusAmount > 0) {
             // Give bonus to the new user who signed up using referral
-            await walletService.addCoins(user._id, referredBonusAmount, 'referral_signup_bonus');
-            logger.info(`Referral signup bonus of ${referredBonusAmount} awarded to new user ${user._id}`);
+            await walletService.addCoins(user.id, referredBonusAmount, 'referral_signup_bonus');
+            logger.info(`Referral signup bonus of ${referredBonusAmount} awarded to new user ${user.id}`);
           }
         }
       } else {
-        await userRepository.updateLastActive(user._id);
+        await userRepository.updateLastActive(user.id);
 
         // Ensure wallet exists for existing users as many flows expect wallet upfront
-        const existingWallet = await walletRepository.findByUserId(user._id);
+        const existingWallet = await walletRepository.findByUserId(user.id);
         if (!existingWallet) {
-          await walletService.initializeWallet(user._id, user.coins || config.defaultCoins);
+          await walletService.initializeWallet(user.id, user.coins || config.defaultCoins);
         }
 
         if (user.isBanned) {
@@ -523,24 +523,32 @@ class AuthService {
    */
   async getReferralHistory(userId) {
     try {
+      const { Op } = require('sequelize');
       const User = require('../models/user.model');
       const Transaction = require('../models/transaction.model');
       
-      const referredUsers = await User.find({ referredBy: userId }).select('phone name createdAt _id');
+      const referredUsers = await User.findAll({
+        where: { referredById: userId },
+        attributes: ['phone', 'name', 'createdAt', 'id']
+      });
       
-      const transactions = await Transaction.find({
-        userId,
-        reason: { $regex: /referral/i }
+      const transactions = await Transaction.findAll({
+        where: {
+          userId,
+          reason: {
+            [Op.like]: '%referral%'
+          }
+        }
       });
       
       const history = referredUsers.map(u => {
-        let tx = transactions.find(t => t.reason.includes(u.phone));
+        let tx = transactions.find(t => t.reason && t.reason.includes(u.phone));
         let amount = tx ? tx.amount : 0;
         
         const obfuscatedPhone = u.phone ? u.phone.substring(0, u.phone.length - 4) + '****' : 'Unknown';
         
         return {
-          userId: u._id,
+          userId: u.id,
           name: u.name,
           phone: obfuscatedPhone,
           joinedAt: u.createdAt,
@@ -548,7 +556,9 @@ class AuthService {
         };
       });
       
-      const user = await User.findById(userId).select('referralEarnings referralCode');
+      const user = await User.findByPk(userId, {
+        attributes: ['referralEarnings', 'referralCode']
+      });
       
       return {
         referralCode: user?.referralCode || '',

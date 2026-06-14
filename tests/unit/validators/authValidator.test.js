@@ -1,5 +1,4 @@
 const request = require('supertest');
-const mongoose = require('mongoose');
 const authValidator = require('../../../src/validators/authValidator');
 
 describe('Auth Validator Tests', () => {

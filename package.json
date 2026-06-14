@@ -13,7 +13,7 @@
     "lint:fix": "eslint src/ --fix",
     "format": "prettier --write src/",
     "seed": "node scripts/seed.js",
-    "migrate": "node scripts/migrate.js"
+    "migrate": "node scripts/mysql_migrate.js"
   },
   "keywords": [
     "ludo",
@@ -33,7 +33,6 @@
     "dayjs": "^1.11.10",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "express-mongo-sanitize": "^2.2.0",
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.0.0",
     "firebase-admin": "^12.0.0",
@@ -42,10 +41,11 @@
     "joi": "^17.11.0",
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
-    "mongoose": "^7.5.0",
     "morgan": "^1.10.0",
+    "mysql2": "^3.22.5",
     "node-cron": "^3.0.3",
     "redis": "^6.0.0",
+    "sequelize": "^6.37.8",
     "socket.io": "^4.7.2",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.0",

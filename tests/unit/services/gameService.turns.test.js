@@ -1,7 +1,9 @@
 const gameService = require('../../../src/services/gameService');
-const mongoose = require('mongoose');
+const { sequelize } = require('../../../src/config/db');
 
-jest.spyOn(mongoose, 'startSession').mockRejectedValue(new Error('No database connection in tests'));
+jest.spyOn(sequelize, 'transaction').mockImplementation(async (callback) => {
+  return callback({});
+});
 
 jest.mock('../../../src/repositories/gameRepository');
 jest.mock('../../../src/repositories/userRepository');
@@ -109,11 +111,12 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
       status: 'active',
       currentTurnCount: 0,
       turnStartedAt: staleAt,
+      diceValue: 3,
       players: [
         {
           userId: { toString: () => 'player1' },
           tokens: [
-            { position: 0, active: true },
+            { position: -1, active: false },
             { position: -1, active: false },
             { position: -1, active: false },
             { position: -1, active: false },
@@ -152,7 +155,7 @@ describe('GameService - Turn Rotation & Consecutive Sixes', () => {
     gameRepository.findById = jest
       .fn()
       .mockResolvedValueOnce(staleGame)
-      .mockResolvedValueOnce(refreshedGame);
+      .mockResolvedValue(refreshedGame);
     gameRepository.updatePlayerBoard = jest.fn().mockResolvedValue(refreshedGame);
     gameRepository.updateCurrentTurn = jest.fn().mockResolvedValue(refreshedGame);
     gameRepository.addMove = jest.fn().mockResolvedValue(refreshedGame);

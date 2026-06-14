@@ -1,67 +1,68 @@
-const mongoose = require('mongoose');
+const { DataTypes, Model } = require('sequelize');
+const { sequelize } = require('../config/db');
 
-const walletSchema = new mongoose.Schema(
+class Wallet extends Model {}
+
+Wallet.init(
   {
+    id: {
+      type: DataTypes.INTEGER.UNSIGNED,
+      autoIncrement: true,
+      primaryKey: true,
+    },
+    // FK to users.id
     userId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
-      required: true,
+      type: DataTypes.INTEGER.UNSIGNED,
+      allowNull: false,
       unique: true,
     },
     coins: {
-      type: Number,
-      default: 500,
-      min: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 500,
+      allowNull: false,
     },
     lockedCoins: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
     },
     isLocked: {
-      type: Boolean,
-      default: false,
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
     },
     lockedReason: {
-      type: String,
-      default: null,
+      type: DataTypes.STRING(255),
+      allowNull: true,
+      defaultValue: null,
     },
     lockedAt: {
-      type: Date,
-      default: null,
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
     },
     status: {
-      type: String,
-      enum: ['active', 'frozen', 'locked'],
-      default: 'active',
+      type: DataTypes.ENUM('active', 'frozen', 'locked'),
+      defaultValue: 'active',
     },
     totalEarned: {
-      type: Number,
-      default: 0,
-      min: 0,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
     totalSpent: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    createdAt: {
-      type: Date,
-      default: Date.now,
-    },
-    updatedAt: {
-      type: Date,
-      default: Date.now,
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
     },
   },
   {
+    sequelize,
+    modelName: 'Wallet',
+    tableName: 'wallets',
     timestamps: true,
-    collection: 'wallets',
+    indexes: [
+      { fields: ['userId'] },
+      { fields: ['isLocked'] },
+    ],
   }
 );
 
-// Indexes
-walletSchema.index({ userId: 1 });
-walletSchema.index({ isLocked: 1 });
-
-module.exports = mongoose.model('Wallet', walletSchema);
+module.exports = Wallet;
