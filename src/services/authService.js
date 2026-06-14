@@ -135,7 +135,7 @@ class AuthService {
    * @param {String} providedSessionId - Optional session ID from client
    * @returns {Promise<Object>} User object and tokens
    */
-  async verifyOtpAndAuthenticate(phone, otp, providedSessionId = null) {
+  async verifyOtpAndAuthenticate(phone, otp, providedSessionId = null, referralCode = null) {
     try {
       this._cleanupExpiredOtpSessions();
 
@@ -168,6 +168,13 @@ class AuthService {
 
       if (isNewUser) {
         const phoneDigits = normalizedPhone.replace(/\D/g, '');
+        const newReferralCode = require('crypto').randomBytes(3).toString('hex').toUpperCase();
+
+        let referringUser = null;
+        if (referralCode) {
+          referringUser = await userRepository.findByReferralCode(referralCode);
+        }
+
         user = await userRepository.create({
           phone: normalizedPhone,
           firebaseUid: `otp_${phoneDigits}`,
@@ -179,10 +186,31 @@ class AuthService {
           losses: 0,
           totalGames: 0,
           winRate: 0,
+          referralCode: newReferralCode,
+          referredBy: referringUser ? referringUser._id : null,
         });
 
         await walletService.initializeWallet(user._id, initialCoins);
         logger.info(`New OTP user created: ${user._id}`);
+
+        if (referringUser) {
+          const BotConfig = require('../models/botConfig.model');
+          let configObj = await BotConfig.findOne();
+          const referrerBonusAmount = configObj?.referrerBonus ?? 50;
+          const referredBonusAmount = configObj?.referredBonus ?? 0;
+          
+          if (referrerBonusAmount > 0) {
+            await walletService.addCoins(referringUser._id, referrerBonusAmount, `Referral bonus for user ${user.phone}`);
+            await userRepository.incrementReferralEarnings(referringUser._id, referrerBonusAmount);
+            logger.info(`Referral bonus of ${referrerBonusAmount} awarded to user ${referringUser._id}`);
+          }
+          
+          if (referredBonusAmount > 0) {
+            // Give bonus to the new user who signed up using referral
+            await walletService.addCoins(user._id, referredBonusAmount, 'referral_signup_bonus');
+            logger.info(`Referral signup bonus of ${referredBonusAmount} awarded to new user ${user._id}`);
+          }
+        }
       } else {
         await userRepository.updateLastActive(user._id);
 
@@ -325,6 +353,13 @@ class AuthService {
 
       if (user.isSuspended) {
         throw new ApiError(HTTP_STATUS.FORBIDDEN, `Account suspended: ${user.suspendReason || 'No reason provided'}`);
+      }
+
+      // Generate referral code for older users if they don't have one
+      if (!user.referralCode && !user.isBot) {
+        const newReferralCode = require('crypto').randomBytes(3).toString('hex').toUpperCase();
+        await userRepository.update(user._id, { referralCode: newReferralCode });
+        user.referralCode = newReferralCode;
       }
 
       return user;
@@ -479,6 +514,51 @@ class AuthService {
 
       logger.error('Error checking user status:', error);
       throw error;
+    }
+  }
+  /**
+   * Get referral history
+   * @param {String} userId - User ID
+   * @returns {Promise<Object>} Referral history
+   */
+  async getReferralHistory(userId) {
+    try {
+      const User = require('../models/user.model');
+      const Transaction = require('../models/transaction.model');
+      
+      const referredUsers = await User.find({ referredBy: userId }).select('phone name createdAt _id');
+      
+      const transactions = await Transaction.find({
+        userId,
+        reason: { $regex: /referral/i }
+      });
+      
+      const history = referredUsers.map(u => {
+        let tx = transactions.find(t => t.reason.includes(u.phone));
+        let amount = tx ? tx.amount : 0;
+        
+        const obfuscatedPhone = u.phone ? u.phone.substring(0, u.phone.length - 4) + '****' : 'Unknown';
+        
+        return {
+          userId: u._id,
+          name: u.name,
+          phone: obfuscatedPhone,
+          joinedAt: u.createdAt,
+          bonusReceived: amount
+        };
+      });
+      
+      const user = await User.findById(userId).select('referralEarnings referralCode');
+      
+      return {
+        referralCode: user?.referralCode || '',
+        totalEarnings: user?.referralEarnings || 0,
+        history
+      };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      logger.error('Error getting referral history:', error);
+      throw new ApiError(HTTP_STATUS.INTERNAL_SERVER_ERROR, 'Failed to get referral history');
     }
   }
 }

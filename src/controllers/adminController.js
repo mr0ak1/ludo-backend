@@ -230,7 +230,7 @@ const getAllWithdrawals = async (req, res, next) => {
 
     const Transaction = require('../models/transaction.model');
     // Only fetch pending withdrawal requests
-    const query = { type: 'withdrawal', status: 'pending' };
+    const query = { type: 'withdrawal' }; if (req.query.status === 'history') { query.status = { $in: ['completed', 'failed', 'rejected', 'refunded'] }; } else if (req.query.status) { query.status = req.query.status; } else { query.status = 'pending'; }
     
     if (search) {
       const User = require('../models/user.model');
@@ -321,6 +321,121 @@ const rejectWithdrawal = async (req, res, next) => {
     await transaction.save();
 
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, 'Withdrawal rejected and refunded successfully', transaction));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get all platform deposit requests
+ * GET /admin/deposits
+ */
+const getAllDeposits = async (req, res, next) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const { search } = req.query;
+    const skip = (page - 1) * limit;
+
+    const Transaction = require('../models/transaction.model');
+    const query = { type: 'deposit' };
+    if (req.query.status === 'history') {
+      query.status = { $in: ['completed', 'failed', 'rejected', 'refunded', 'reversed'] };
+    } else if (req.query.status) {
+      query.status = req.query.status;
+    } else {
+      query.status = 'pending';
+    }
+    
+    if (search) {
+      const User = require('../models/user.model');
+      const searchRegex = new RegExp(search, 'i');
+      const users = await User.find({
+        $or: [
+          { name: searchRegex },
+          { phone: searchRegex },
+          { email: searchRegex }
+        ]
+      }).select('_id');
+      const userIds = users.map(u => u._id);
+      
+      query.$or = [
+        { userId: { $in: userIds } },
+        { 'metadata.utr': searchRegex },
+        { transactionId: searchRegex }
+      ];
+    }
+    
+    const deposits = await Transaction.find(query)
+      .populate('userId', 'name phone email avatar')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Transaction.countDocuments(query);
+
+    const ApiResponse = require('../utils/apiResponse');
+    res.status(200).json(
+      new ApiResponse(200, 'All deposits retrieved', {
+        deposits,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Approve a deposit request
+ * POST /admin/deposits/:id/approve
+ */
+const approveDeposit = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const Transaction = require('../models/transaction.model');
+    const transaction = await Transaction.findById(id);
+
+    if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
+    if (transaction.type !== 'deposit') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Not a deposit transaction');
+    if (transaction.status !== 'pending') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Deposit is already ' + transaction.status);
+
+    const walletService = require('../services/walletService');
+    await walletService.addCoins(transaction.userId, transaction.amount, 'deposit', 'Deposit Approved by Admin');
+
+    transaction.status = 'completed';
+    await transaction.save();
+
+    res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, 'Deposit approved successfully', transaction));
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Reject a deposit request
+ * POST /admin/deposits/:id/reject
+ */
+const rejectDeposit = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const Transaction = require('../models/transaction.model');
+    const transaction = await Transaction.findById(id);
+
+    if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
+    if (transaction.type !== 'deposit') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Not a deposit transaction');
+    if (transaction.status !== 'pending') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Deposit is already ' + transaction.status);
+
+    transaction.status = 'failed';
+    transaction.reason = transaction.reason + ' (Rejected by Admin)';
+    await transaction.save();
+
+    res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, 'Deposit rejected successfully', transaction));
   } catch (error) {
     next(error);
   }
@@ -1401,6 +1516,95 @@ const deleteLobbyGame = async (req, res, next) => {
   }
 };
 
+const BotConfig = require('../models/botConfig.model');
+
+const getReferralConfig = async (req, res, next) => {
+  try {
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = await BotConfig.create({});
+    }
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Referral config retrieved', {
+        referrerBonus: config.referrerBonus,
+        referredBonus: config.referredBonus
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+const setReferralConfig = async (req, res, next) => {
+  try {
+    const { referrerBonus, referredBonus } = req.body;
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = new BotConfig();
+    }
+    
+    if (referrerBonus !== undefined) config.referrerBonus = Number(referrerBonus);
+    if (referredBonus !== undefined) config.referredBonus = Number(referredBonus);
+    
+    await config.save();
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Referral config updated successfully', {
+        referrerBonus: config.referrerBonus,
+        referredBonus: config.referredBonus
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+const getPaymentGatewayConfig = async (req, res, next) => {
+  try {
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = await BotConfig.create({});
+    }
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Payment gateway config retrieved', {
+        paymentGatewayKey: config.paymentGatewayKey || '',
+        upiId: config.upiId || '',
+        paytmMerchantId: config.paytmMerchantId || ''
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+const setPaymentGatewayConfig = async (req, res, next) => {
+  try {
+    const { paymentGatewayKey, upiId, paytmMerchantId } = req.body;
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = new BotConfig();
+    }
+    
+    if (paymentGatewayKey !== undefined) config.paymentGatewayKey = String(paymentGatewayKey);
+    if (upiId !== undefined) config.upiId = String(upiId);
+    if (paytmMerchantId !== undefined) config.paytmMerchantId = String(paytmMerchantId);
+    
+    await config.save();
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Payment gateway config updated successfully', {
+        paymentGatewayKey: config.paymentGatewayKey,
+        upiId: config.upiId,
+        paytmMerchantId: config.paytmMerchantId
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   adminLogin,
   getDashboard,
@@ -1434,4 +1638,11 @@ module.exports = {
   createLobbyGame,
   updateLobbyGame,
   deleteLobbyGame,
+  getReferralConfig,
+  getAllDeposits,
+  approveDeposit,
+  rejectDeposit,
+  setReferralConfig,
+  getPaymentGatewayConfig,
+  setPaymentGatewayConfig,
 };

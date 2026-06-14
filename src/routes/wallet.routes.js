@@ -34,6 +34,41 @@ router.get('/stats', authMiddleware, walletController.getWalletStats);
 router.post('/request-withdrawal', authMiddleware, walletController.requestWithdrawal);
 
 /**
+ * @route POST /api/v1/wallet/deposit
+ * @desc Initiate a deposit via EKQR
+ * @access Private
+ */
+router.post('/deposit', authMiddleware, walletController.initiateDeposit);
+
+/**
+ * @route GET /api/v1/wallet/deposit/callback
+ * @desc Verify deposit callback from EKQR
+ * @access Public (Gateway calls this)
+ */
+router.get('/deposit/callback', walletController.verifyDepositCallback);
+
+/**
+ * @route GET /api/v1/wallet/deposit-config
+ * @desc Get Deposit Configuration (UPI ID, etc)
+ * @access Private
+ */
+router.get('/deposit-config', authMiddleware, walletController.getDepositConfig);
+
+/**
+ * @route POST /api/v1/wallet/deposit/manual
+ * @desc Submit manual deposit via UTR
+ * @access Private
+ */
+router.post('/deposit/manual', authMiddleware, walletController.submitManualDeposit);
+
+/**
+ * @route POST /api/v1/wallet/deposit/verify-pending
+ * @desc Verify all pending deposits for a user
+ * @access Private
+ */
+router.post('/deposit/verify-pending', authMiddleware, walletController.verifyPendingDeposits);
+
+/**
  * @route POST /api/v1/wallet/add
  * @desc Add coins to user wallet (admin only)
  * @access Private (Admin)

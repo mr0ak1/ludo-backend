@@ -77,6 +77,10 @@ const gameSchema = new mongoose.Schema(
           type: Number,
           default: 0,
         },
+        missedTurns: {
+          type: Number,
+          default: 0,
+        },
       },
     ],
     currentTurn: {

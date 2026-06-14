@@ -70,6 +70,7 @@ const validateVerifyOtp = (data) => {
     otp: otpSchema,
     sessionId: Joi.string().optional(),
     deviceToken: Joi.string().optional(),
+    referralCode: Joi.string().trim().uppercase().optional(),
   });
 
   return schema.validate(data, { abortEarly: false });

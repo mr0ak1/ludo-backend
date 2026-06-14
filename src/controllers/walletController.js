@@ -202,6 +202,111 @@ const requestWithdrawal = async (req, res, next) => {
   }
 };
 
+/**
+ * Initiate Deposit
+ * POST /api/v1/wallet/deposit
+ */
+const initiateDeposit = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const { amount } = req.body;
+
+    if (!amount || isNaN(amount) || amount < 10) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Valid amount (min 10) is required');
+    }
+
+    const result = await walletService.initiateDeposit(userId, Number(amount));
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Deposit initiated', result)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Verify Deposit Callback
+ * GET /api/v1/wallet/deposit/callback
+ */
+const verifyDepositCallback = async (req, res, next) => {
+  try {
+    const { client_txn_id, txn_date } = req.query;
+
+    if (!client_txn_id || !txn_date) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Missing callback parameters');
+    }
+
+    await walletService.verifyDepositCallback(client_txn_id, txn_date);
+
+    // Redirect to frontend or return success
+    // Depending on integration we might want to redirect.
+    const redirectUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    res.redirect(`${redirectUrl}/wallet?deposit=success`);
+  } catch (error) {
+    // If it fails, still redirect but with error
+    const redirectUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    res.redirect(`${redirectUrl}/wallet?deposit=failed`);
+  }
+};
+
+/**
+ * Verify Pending Deposits
+ * POST /api/v1/wallet/deposit/verify-pending
+ */
+const verifyPendingDeposits = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const result = await walletService.verifyPendingDeposits(userId);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Pending deposits verified', result)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Deposit Config
+ * GET /api/v1/wallet/deposit-config
+ */
+const getDepositConfig = async (req, res, next) => {
+  try {
+    const BotConfig = require('../models/botConfig.model');
+    const config = await BotConfig.findOne();
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Deposit config retrieved', {
+        upiId: config?.upiId || '',
+        paytmMerchantId: config?.paytmMerchantId || ''
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+
+/**
+ * Submit Manual Deposit
+ * POST /api/v1/wallet/deposit/manual
+ */
+const submitManualDeposit = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const { amount, utr } = req.body;
+
+    const result = await walletService.submitManualDeposit(userId, Number(amount), utr);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Manual deposit submitted for review', result)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getWallet,
   getTransactionHistory,
@@ -211,4 +316,9 @@ module.exports = {
   unfreezeWallet,
   getWalletStats,
   requestWithdrawal,
+  initiateDeposit,
+  verifyDepositCallback,
+  verifyPendingDeposits,
+  getDepositConfig,
+  submitManualDeposit,
 };

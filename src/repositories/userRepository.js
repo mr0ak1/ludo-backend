@@ -57,6 +57,21 @@ class UserRepository {
   }
 
   /**
+   * Find user by referral code
+   * @param {String} referralCode - Referral code
+   * @returns {Promise<Object|null>} User object or null
+   */
+  async findByReferralCode(referralCode) {
+    try {
+      const user = await User.findOne({ referralCode: referralCode.toUpperCase() }).select('-__v');
+      return user ? user.toObject() : null;
+    } catch (error) {
+      logger.error('Error finding user by referral code:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Find user by Firebase UID
    * @param {String} firebaseUid - Firebase UID
    * @returns {Promise<Object|null>} User object or null
@@ -115,6 +130,26 @@ class UserRepository {
         throw new ApiError(HTTP_STATUS.BAD_REQUEST, error.message);
       }
       logger.error('Error updating user:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Increment referral earnings
+   * @param {String} userId - User ID
+   * @param {Number} amount - Amount to increment
+   * @returns {Promise<Object>} Updated user
+   */
+  async incrementReferralEarnings(userId, amount) {
+    try {
+      const user = await User.findByIdAndUpdate(
+        userId,
+        { $inc: { referralEarnings: amount }, $set: { updatedAt: new Date() } },
+        { new: true }
+      ).select('-__v');
+      return user ? user.toObject() : null;
+    } catch (error) {
+      logger.error('Error incrementing referral earnings:', error);
       throw error;
     }
   }

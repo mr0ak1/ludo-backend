@@ -231,4 +231,53 @@ router.put('/lobby-games/:id', authMiddleware, adminMiddleware, adminController.
  */
 router.delete('/lobby-games/:id', authMiddleware, adminMiddleware, adminController.deleteLobbyGame);
 
+/**
+ * @route GET /admin/referral-config
+ * @desc Get referral bonus configuration
+ * @access Private (Admin)
+ */
+router.get('/referral-config', authMiddleware, adminMiddleware, adminController.getReferralConfig);
+
+/**
+ * @route POST /admin/referral-config
+ * @desc Set referral bonus configuration
+ * @access Private (Admin)
+ */
+router.post('/referral-config', authMiddleware, adminMiddleware, adminController.setReferralConfig);
+
+/**
+ * @route GET /admin/payment-gateway-config
+ * @desc Get payment gateway config
+ * @access Private (Admin)
+ */
+router.get('/payment-gateway-config', authMiddleware, adminMiddleware, adminController.getPaymentGatewayConfig);
+
+/**
+ * @route POST /admin/payment-gateway-config
+ * @desc Set payment gateway config
+ * @access Private (Admin)
+ */
+router.post('/payment-gateway-config', authMiddleware, adminMiddleware, adminController.setPaymentGatewayConfig);
+
+/**
+ * @route GET /admin/deposits
+ * @desc Get all pending deposit requests
+ * @access Private (Admin)
+ */
+router.get('/deposits', authMiddleware, adminMiddleware, adminController.getAllDeposits);
+
+/**
+ * @route POST /admin/deposits/:id/approve
+ * @desc Approve a deposit
+ * @access Private (Admin)
+ */
+router.post('/deposits/:id/approve', authMiddleware, adminMiddleware, adminController.approveDeposit);
+
+/**
+ * @route POST /admin/deposits/:id/reject
+ * @desc Reject a deposit
+ * @access Private (Admin)
+ */
+router.post('/deposits/:id/reject', authMiddleware, adminMiddleware, adminController.rejectDeposit);
+
 module.exports = router;

@@ -48,6 +48,13 @@ router.post('/logout', authMiddleware, authController.logout);
 router.get('/profile', authMiddleware, authController.getProfile);
 
 /**
+ * @route GET /api/v1/auth/referral-history
+ * @desc Get user referral history
+ * @access Private
+ */
+router.get('/referral-history', authMiddleware, authController.getReferralHistory);
+
+/**
  * @route PUT /api/v1/auth/profile
  * @desc Update user profile
  * @access Private

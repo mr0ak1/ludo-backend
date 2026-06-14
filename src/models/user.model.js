@@ -142,6 +142,20 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    referralCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    referredBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    referralEarnings: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,

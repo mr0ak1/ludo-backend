@@ -528,6 +528,207 @@ class WalletService {
       throw error;
     }
   }
+  /**
+   * Initiate deposit via EKQR
+   */
+  async initiateDeposit(userId, amount) {
+    if (amount < 10) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Minimum deposit amount is ₹10');
+    }
+
+    const BotConfig = require('../models/botConfig.model');
+    const config = await BotConfig.findOne();
+    const gatewayKey = config?.paymentGatewayKey;
+    
+    if (!gatewayKey) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, "Payment gateway key not configured by admin.");
+    }
+
+    const User = require('../models/user.model');
+    const user = await User.findById(userId);
+
+    const client_txn_id = String(Math.floor(Math.random() * 900000) + 100000);
+    const txn_date = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+    
+    // Create pending transaction
+    const Transaction = require('../models/transaction.model');
+    await Transaction.create({
+      userId,
+      amount,
+      type: 'deposit',
+      reason: 'Wallet Deposit via UPI',
+      status: 'pending',
+      transactionId: client_txn_id,
+      metadata: { txn_date }
+    });
+
+    // EKQR requires a valid public URL format, so we avoid localhost
+    const clientUrl = process.env.CLIENT_URL?.includes('localhost') ? 'https://google.com' : (process.env.CLIENT_URL || 'https://google.com');
+    const redirect_url = `${clientUrl}/payment-callback?client_txn_id=${client_txn_id}&txn_date=${txn_date}`;
+    
+    const rawPhone = String(user?.phone || '9999999999').replace(/\D/g, '');
+    const safePhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : rawPhone.padStart(10, '9');
+
+    const payload = {
+      key: gatewayKey,
+      client_txn_id,
+      amount: String(amount),
+      p_info: "Wallet Deposit",
+      customer_name: user?.name || "Ludo Player",
+      customer_email: user?.email || "user@ludogame.com",
+      customer_mobile: safePhone,
+      redirect_url,
+      txn_date,
+      udf1: String(userId)
+    };
+
+    try {
+      const response = await fetch("https://api.ekqr.in/api/create_order", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json();
+
+      if (result.status === true && result.data?.payment_url) {
+        return { paymentUrl: result.data.payment_url };
+      } else {
+        throw new Error(result.msg || 'Unknown Error from gateway');
+      }
+    } catch (err) {
+      logger.error('EKQR API Error: ' + err.message);
+      throw new ApiError(HTTP_STATUS.INTERNAL_SERVER_ERROR, "Failed to initiate payment: " + err.message);
+    }
+  }
+
+  /**
+   * Verify deposit callback from EKQR
+   */
+  async verifyDepositCallback(client_txn_id, txn_date) {
+    if (!client_txn_id || !txn_date) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, "Missing callback parameters");
+    }
+
+    const Transaction = require('../models/transaction.model');
+    const txn = await Transaction.findOne({ transactionId: client_txn_id, type: 'deposit' });
+
+    if (!txn) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, "Transaction not found");
+    }
+
+    if (txn.status === 'completed') {
+      return { success: true, message: "Transaction already completed", amount: txn.amount };
+    }
+
+    const BotConfig = require('../models/botConfig.model');
+    const config = await BotConfig.findOne();
+    const gatewayKey = config?.paymentGatewayKey;
+
+    if (!gatewayKey) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, "Payment gateway key not configured");
+    }
+
+    try {
+      const payload = new URLSearchParams();
+      payload.append('key', gatewayKey);
+      payload.append('client_txn_id', client_txn_id);
+      payload.append('txn_date', txn_date);
+
+      const response = await fetch("https://api.ekqr.in/api/check_order_status", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: payload.toString()
+      });
+      const resultData = await response.json();
+
+      if (
+        response.status === 200 &&
+        resultData.status === true &&
+        resultData.data?.status?.toLowerCase() === 'success'
+      ) {
+        // Payment success, add funds
+        const amount = txn.amount;
+        const bonus = (amount >= 100) ? Math.round(amount * 0.05) : 0;
+        const totalCredit = amount + bonus;
+
+        await this.addCoins(txn.userId, totalCredit, 'deposit', `UPI Deposit (Bonus: ${bonus})`);
+        
+        txn.status = 'completed';
+        await txn.save();
+
+        return { success: true, amount: totalCredit };
+      } else {
+        // Payment failed or not success
+        txn.status = 'failed';
+        await txn.save();
+        return { success: false, message: "Payment was not successful" };
+      }
+    } catch (err) {
+      logger.error('EKQR Verification Error: ' + err.message);
+      throw new ApiError(HTTP_STATUS.INTERNAL_SERVER_ERROR, "Verification failed");
+    }
+  }
+
+  /**
+   * Verify all pending deposits for a user
+   */
+  async verifyPendingDeposits(userId) {
+    const Transaction = require('../models/transaction.model');
+    const pendingTxns = await Transaction.find({ userId, type: 'deposit', status: 'pending' });
+
+    if (!pendingTxns.length) {
+      return { updated: false };
+    }
+
+    let updated = false;
+    for (const txn of pendingTxns) {
+      try {
+        const result = await this.verifyDepositCallback(txn.transactionId, txn.metadata?.txn_date);
+        if (result.success) {
+          updated = true;
+        }
+      } catch (err) {
+        // ignore errors for individual pending checks
+        logger.error(`Failed to verify pending txn ${txn.transactionId}: ${err.message}`);
+      }
+    }
+    return { updated };
+  }
+  /**
+   * Submit manual deposit with UTR
+   */
+  async submitManualDeposit(userId, amount, utr) {
+    if (amount < 10) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Minimum deposit amount is ₹10');
+    }
+
+    if (!utr || utr.length < 10) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Valid UTR is required');
+    }
+
+    const Transaction = require('../models/transaction.model');
+    
+    // Check if UTR already exists to prevent duplicate submission
+    const existing = await Transaction.findOne({ 'metadata.utr': utr });
+    if (existing) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'UTR already submitted');
+    }
+
+    const client_txn_id = 'MANUAL_' + Date.now();
+    
+    // Create pending transaction
+    const txn = await Transaction.create({
+      userId,
+      amount,
+      type: 'deposit',
+      reason: 'Manual UPI Deposit (Pending Admin Approval)',
+      status: 'pending',
+      transactionId: client_txn_id,
+      metadata: { utr }
+    });
+
+    return { success: true, transactionId: txn.transactionId };
+  }
 }
 
 module.exports = new WalletService();

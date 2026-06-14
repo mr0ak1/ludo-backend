@@ -1100,46 +1100,118 @@ class GameService {
  
     const playerIndex = game.currentTurn;
     const currentPlayer = game.players[playerIndex];
- 
-    if (currentPlayer) {
+    
+    // Increment missed turns
+    const missedTurns = (currentPlayer.missedTurns || 0) + 1;
+    
+    if (missedTurns >= 5 && currentPlayer.userId) {
+      const userIdStr = toUserIdString(currentPlayer.userId);
+      logger.info(`Player ${userIdStr} missed 5 turns in game ${gameId}. Auto-surrendering.`);
+      
+      const otherPlayer = game.players.find((p, idx) => idx !== playerIndex);
+      const winnerId = otherPlayer ? toUserIdString(otherPlayer.userId) : null;
+      
+      const results = {
+        surrenderedBy: userIdStr,
+        status: 'surrendered',
+        reason: 'missed_5_turns',
+        winner: winnerId
+      };
+      
       await gameRepository.updatePlayerBoard(gameId, playerIndex, {
-        tokens: currentPlayer.tokens,
-        isHome: currentPlayer.isHome,
-        consecutiveSixes: 0,
+        missedTurns,
+        isActive: false
+      });
+      
+      return await this.completeGame(gameId, results);
+    }
+
+    let diceValue = game.diceValue || 0;
+
+    if (diceValue === 0) {
+      diceValue = crypto.randomInt(1, 7);
+      if (currentPlayer && currentPlayer.consecutiveSixes >= 2 && diceValue === 6) {
+        diceValue = crypto.randomInt(1, 6);
+      }
+      
+      const validMoves = this._getValidMoves(currentPlayer, diceValue);
+      const actionUserId = currentPlayer.userId ? toUserIdString(currentPlayer.userId) : null;
+      
+      const moveData = {
+        playerIndex,
+        userId: actionUserId,
+        action: 'roll_dice',
+        diceValue,
+        isBot: false,
+        consecutiveSixes: (currentPlayer ? currentPlayer.consecutiveSixes : 0) + (diceValue === 6 ? 1 : 0),
+        timeoutMs: TURN_TIMEOUT,
+      };
+
+      await gameRepository.update(gameId, { diceValue });
+      await gameRepository.addMove(gameId, moveData);
+      
+      gameEvents.emit(SERVER_EVENTS.DICE_ROLLED, {
+        gameId,
+        userId: actionUserId,
+        diceValue,
+        playerIndex,
+        consecutiveSixes: moveData.consecutiveSixes,
+        validMoves,
+      });
+      
+      game.diceValue = diceValue;
+    }
+
+    const validMoves = this._getValidMoves(currentPlayer, diceValue);
+    const actionUserId = currentPlayer.userId ? toUserIdString(currentPlayer.userId) : null;
+    
+    // Save missed turns before doing moves
+    currentPlayer.missedTurns = missedTurns;
+    await gameRepository.updatePlayerBoard(gameId, playerIndex, { missedTurns });
+    
+    if (validMoves.length > 0) {
+      const tokenIndex = validMoves[crypto.randomInt(0, validMoves.length)];
+      await this._applyMove(gameId, game, playerIndex, tokenIndex, diceValue, actionUserId, false);
+    } else {
+      if (currentPlayer) {
+        await gameRepository.updatePlayerBoard(gameId, playerIndex, {
+          tokens: currentPlayer.tokens,
+          isHome: currentPlayer.isHome,
+          consecutiveSixes: 0,
+        });
+      }
+      
+      const nextTurn = (playerIndex + 1) % game.players.length;
+      await gameRepository.update(gameId, { diceValue: 0 });
+      await gameRepository.updateCurrentTurn(gameId, nextTurn);
+      await gameRepository.addMove(gameId, {
+        playerIndex,
+        action: 'turn_timeout',
+        timeoutMs: TURN_TIMEOUT,
+        timestamp: new Date(),
+      });
+      
+      const updatedGame = await gameRepository.findById(gameId);
+      const formattedGame = this._formatGameResponse(updatedGame);
+
+      await this._scheduleTurnTimeout(gameId, TURN_TIMEOUT / 1000);
+
+      this._triggerBotTurn(gameId).catch(err => logger.error('Bot recursion error:', err));
+
+      gameEvents.emit(SERVER_EVENTS.TURN_CHANGED, {
+        gameId,
+        currentTurn: nextTurn,
+        action: 'turn_timeout',
+        game: formattedGame,
+      });
+      gameEvents.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
+        gameId,
+        game: formattedGame,
       });
     }
- 
-    const nextTurn = (playerIndex + 1) % game.players.length;
-    await gameRepository.update(gameId, { diceValue: 0 });
-    await gameRepository.updateCurrentTurn(gameId, nextTurn);
-    await gameRepository.addMove(gameId, {
-      playerIndex,
-      action: 'turn_timeout',
-      timeoutMs: TURN_TIMEOUT,
-      timestamp: new Date(),
-    });
- 
-    const updatedGame = await gameRepository.findById(gameId);
-    const formattedGame = this._formatGameResponse(updatedGame);
-
-    // Schedule turn timeout for the next player
-    await this._scheduleTurnTimeout(gameId, TURN_TIMEOUT / 1000);
-
-    // Trigger bot turn if next player is a bot
-    this._triggerBotTurn(gameId).catch(err => logger.error('Bot recursion error:', err));
-
-    gameEvents.emit(SERVER_EVENTS.TURN_CHANGED, {
-      gameId,
-      currentTurn: nextTurn,
-      action: 'turn_timeout',
-      game: formattedGame,
-    });
-    gameEvents.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
-      gameId,
-      game: formattedGame,
-    });
- 
-    return updatedGame;
+    
+    const finalGame = await gameRepository.findById(gameId);
+    return finalGame;
   }
 
   /**

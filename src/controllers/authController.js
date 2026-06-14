@@ -43,12 +43,13 @@ const verifyOtp = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Validation failed', errors);
     }
 
-    const { phone, otp, sessionId, deviceToken } = value;
+    const { phone, otp, sessionId, deviceToken, referralCode } = value;
 
     const result = await authService.verifyOtpAndAuthenticate(
       phone,
       otp,
-      sessionId
+      sessionId,
+      referralCode
     );
 
     // Add device token if provided
@@ -203,6 +204,24 @@ const checkStatus = async (req, res, next) => {
   }
 };
 
+/**
+ * Get user referral history
+ * GET /api/v1/auth/referral-history
+ */
+const getReferralHistory = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+
+    const data = await authService.getReferralHistory(userId);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Referral history retrieved successfully', data)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOtp,
   verifyOtp,
@@ -212,4 +231,5 @@ module.exports = {
   updateProfile,
   deleteAccount,
   checkStatus,
+  getReferralHistory,
 };

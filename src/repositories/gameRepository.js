@@ -286,6 +286,10 @@ class GameRepository {
         updates[`${updatePath}.isActive`] = boardData.isActive;
       }
 
+      if (boardData.missedTurns !== undefined) {
+        updates[`${updatePath}.missedTurns`] = boardData.missedTurns;
+      }
+
       const game = await Game.findOneAndUpdate(
         _getQuery(gameId),
         {
