@@ -215,7 +215,11 @@ const initiateDeposit = async (req, res, next) => {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Valid amount (min 10) is required');
     }
 
-    const result = await walletService.initiateDeposit(userId, Number(amount));
+    const host = req.get('host');
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const backendUrl = `${protocol}://${host}`;
+
+    const result = await walletService.initiateDeposit(userId, Number(amount), backendUrl);
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Deposit initiated', result)
@@ -307,6 +311,88 @@ const submitManualDeposit = async (req, res, next) => {
   }
 };
 
+/**
+ * Handle payment redirect to return user back to the app via deep link
+ * GET /api/v1/wallet/payment-redirect
+ */
+const handlePaymentRedirect = async (req, res, next) => {
+  try {
+    const { client_txn_id, txn_date } = req.query;
+    const deepLinkUrl = `ludofrontend://payment-callback?client_txn_id=${client_txn_id}&txn_date=${txn_date}`;
+
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Payment Completed</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            text-align: center;
+            padding: 40px 20px;
+            background-color: #0c1232;
+            color: #ffffff;
+          }
+          .card {
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 30px 20px;
+            max-width: 400px;
+            margin: 0 auto;
+          }
+          h2 { color: #10b981; margin-top: 0; }
+          p { color: #cbd5e1; font-size: 14px; line-height: 1.5; }
+          .btn {
+            display: inline-block;
+            background: linear-gradient(90deg, #3aa9ff, #0d47a1);
+            color: #fff;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-weight: bold;
+            margin-top: 20px;
+            font-size: 14px;
+          }
+          .loader {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #3aa9ff;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto 0 auto;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2>Payment Completed</h2>
+          <p>Your payment is being processed. You are being redirected back to the Ludo Game app...</p>
+          <div class="loader"></div>
+          <a class="btn" href="${deepLinkUrl}">Open Ludo App</a>
+        </div>
+        <script>
+          // Attempt redirect immediately
+          window.location.href = "${deepLinkUrl}";
+          // Fallback redirect after 2 seconds
+          setTimeout(function() {
+            window.location.href = "${deepLinkUrl}";
+          }, 2000);
+        </script>
+      </body>
+      </html>
+    `);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getWallet,
   getTransactionHistory,
@@ -321,4 +407,5 @@ module.exports = {
   verifyPendingDeposits,
   getDepositConfig,
   submitManualDeposit,
+  handlePaymentRedirect,
 };

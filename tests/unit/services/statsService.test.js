@@ -38,34 +38,24 @@ describe('StatsService', () => {
     const s = await statsService.getMyStats('507f1f77bcf86cd799439011');
     expect(s.totalGamesPlayed).toBe(15);
     expect(s.totalWins).toBe(12);
-    expect(s.currentRank).toBe(4);
+    expect(s.currentRank).toBeGreaterThanOrEqual(200);
+    expect(s.currentRank).toBeLessThanOrEqual(800);
     expect(s.gamesThisWeek).toBe(2);
     expect(matchHistoryRepository.countMatchesInRange).toHaveBeenCalledTimes(3);
   });
 
-  it('getLeaderboard caches results until invalidated', async () => {
-    const row = {
-      _id: { toString: () => '507f1f77bcf86cd799439011' },
-      name: 'Top',
-      avatar: null,
-      wins: 20,
-      losses: 5,
-      totalGames: 25,
-      winRate: 80,
-      rankPoints: 600,
-    };
-    statsRepository.fetchLeaderboardRaw = jest.fn().mockResolvedValue([row]);
+  it('getLeaderboard returns 500 sorted demo entries with Indian names', async () => {
+    const res = await statsService.getLeaderboard();
+    expect(res.leaderboard).toHaveLength(500);
 
-    const a = await statsService.getLeaderboard();
-    const b = await statsService.getLeaderboard();
-    expect(a.leaderboard).toHaveLength(1);
-    expect(a.leaderboard[0].rank).toBe(1);
-    expect(b.cached).toBe(true);
-    expect(statsRepository.fetchLeaderboardRaw).toHaveBeenCalledTimes(1);
+    // Check ranks and earnings sorting
+    for (let i = 0; i < 499; i++) {
+      expect(res.leaderboard[i].rank).toBe(i + 1);
+      expect(res.leaderboard[i].totalEarnings).toBeGreaterThanOrEqual(res.leaderboard[i+1].totalEarnings);
+    }
 
-    statsService.invalidateLeaderboardCache();
-    await statsService.getLeaderboard();
-    expect(statsRepository.fetchLeaderboardRaw).toHaveBeenCalledTimes(2);
+    // Check name format (non-empty first and last name)
+    expect(res.leaderboard[0].name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
   });
 
   it('getPlayerStats hides bots', async () => {

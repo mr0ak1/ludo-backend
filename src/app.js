@@ -7,6 +7,9 @@ const swaggerUi = require('swagger-ui-express');
 const config = require('./config/env');
 const swaggerDocs = require('./config/swagger');
 
+// Register database model associations
+require('./models/index');
+
 // Import routes
 const authRoutes = require('./routes/auth.routes');
 const walletRoutes = require('./routes/wallet.routes');

@@ -42,48 +42,118 @@ function formatPublicUser(u) {
   };
 }
 
+// Seeded random helper (Mulberry32) for deterministic 12-hour updates
+function seedRandom(seed) {
+  return function() {
+    let t = seed += 0x6D2B79F5;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const INDIAN_FIRST_NAMES = [
+  'Aarav', 'Aditya', 'Arjun', 'Vivaan', 'Vihaan', 'Sai', 'Reyansh', 'Krishna', 'Ishan', 'Shaurya',
+  'Atharva', 'Shivaay', 'Ananya', 'Diya', 'Aaradhya', 'Shanaya', 'Anika', 'Myra', 'Ira', 'Sana',
+  'Kunal', 'Rohit', 'Rahul', 'Sneha', 'Priya', 'Amit', 'Akash', 'Vijay', 'Deepak', 'Karan',
+  'Ajay', 'Sanjay', 'Sunil', 'Anil', 'Manish', 'Raju', 'Vikas', 'Sandeep', 'Rakesh', 'Manoj',
+  'Rajesh', 'Gaurav', 'Abhay', 'Harish', 'Suresh', 'Mahesh', 'Vikram', 'Pankaj', 'Sachin', 'Yash'
+];
+
+const INDIAN_LAST_NAMES = [
+  'Sharma', 'Verma', 'Gupta', 'Patel', 'Mehta', 'Joshi', 'Kumar', 'Singh', 'Yadav', 'Prasad',
+  'Mishra', 'Srivastava', 'Trivedi', 'Chaturvedi', 'Dixit', 'Nair', 'Rao', 'Reddy', 'Pillai', 'Iyer',
+  'Das', 'Bose', 'Chatterjee', 'Mukherjee', 'Banerjee', 'Sen', 'Roy', 'Dutta', 'Chowdhury', 'Gill',
+  'Dhillon', 'Sandhu', 'Grewal', 'Sidhu', 'Bajwa', 'Chawla', 'Malhotra', 'Kapoor', 'Khanna', 'Anand',
+  'Sethi', 'Puri', 'Bajaj', 'Choudhary', 'Dubey', 'Pandey', 'Saxena', 'Deshmukh', 'Kulkarni', 'Joshi'
+];
+
+function generateLeaderboardEntries() {
+  const entries = [];
+  const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+  const epoch = Math.floor(Date.now() / TWELVE_HOURS_MS);
+
+  for (let i = 0; i < 500; i++) {
+    // Generate deterministic name combinations that will not repeat in first 500
+    const firstIndex = (i * 7) % INDIAN_FIRST_NAMES.length;
+    const lastIndex = (i * 13) % INDIAN_LAST_NAMES.length;
+    const name = `${INDIAN_FIRST_NAMES[firstIndex]} ${INDIAN_LAST_NAMES[lastIndex]}`;
+
+    // Seeded random for stats fluctuation based on current 12-hour epoch and player index
+    const playerSeed = epoch * 1000 + i;
+    const rng = seedRandom(playerSeed);
+
+    // Base stats: higher base for smaller i, lower base for larger i
+    const baseWins = 500 - i * 0.95;
+    const baseLosses = 250 - i * 0.45;
+    const baseEarnings = Math.round((500 - i * 0.95) * 170);
+
+    // Fluctuations to shuffle ranking every 12 hours (+/- 12%)
+    const fluctuationPercent = (rng() * 24 - 12) / 100;
+    const winsVar = Math.round(baseWins * fluctuationPercent * 0.3);
+    const lossesVar = Math.round(baseLosses * fluctuationPercent * 0.3);
+    const earningsVar = Math.round(baseEarnings * fluctuationPercent);
+
+    const wins = Math.max(5, Math.round(baseWins + winsVar));
+    const losses = Math.max(3, Math.round(baseLosses + lossesVar));
+    const totalGames = wins + losses;
+    const winRate = parseFloat((wins / totalGames).toFixed(4));
+    const totalEarnings = Math.max(500, baseEarnings + earningsVar);
+
+    // Dynamic avatar url
+    const avatar = `https://api.dicebear.com/7.x/adventurer-neutral/png?seed=${encodeURIComponent(name)}`;
+
+    entries.push({
+      userId: `demo-user-${i}`,
+      name,
+      avatar,
+      wins,
+      totalWins: wins,
+      losses,
+      totalGames,
+      winRate,
+      rankPoints: totalEarnings,
+      totalEarnings,
+    });
+  }
+
+  // Sort descending by totalEarnings
+  entries.sort((a, b) => b.totalEarnings - a.totalEarnings);
+
+  // Assign correct ranks
+  return entries.map((entry, idx) => ({
+    ...entry,
+    rank: idx + 1
+  }));
+}
+
+function getUserRank(userId) {
+  const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+  const epoch = Math.floor(Date.now() / TWELVE_HOURS_MS);
+  let userSeed = 0;
+  const userIdStr = String(userId);
+  for (let j = 0; j < userIdStr.length; j++) {
+    userSeed = (userSeed * 31 + userIdStr.charCodeAt(j)) % 1000000;
+  }
+  const seed = epoch * 1000000 + userSeed;
+  const rng = seedRandom(seed);
+  return Math.floor(rng() * 601) + 200; // 200 to 800 inclusive
+}
+
 class StatsService {
   invalidateLeaderboardCache() {
     leaderboardCache = { computedAt: 0, entries: null };
   }
 
   async getLeaderboard() {
-    const fresh =
-      leaderboardCache.entries &&
-      Date.now() - leaderboardCache.computedAt < LEADERBOARD_CACHE_TTL_MS;
-
-    if (fresh) {
-      return {
-        leaderboard: leaderboardCache.entries,
-        cached: true,
-        cacheExpiresInMs: LEADERBOARD_CACHE_TTL_MS - (Date.now() - leaderboardCache.computedAt),
-      };
-    }
-
-    const raw = await statsRepository.fetchLeaderboardRaw();
-    const entries = raw.map((row, idx) => ({
-      rank: idx + 1,
-      userId: row._id.toString(),
-      name: row.name,
-      avatar: row.avatar,
-      wins: row.wins,
-      losses: row.losses,
-      totalGames: row.totalGames,
-      winRate: row.winRate,
-      rankPoints: row.rankPoints ?? 0,
-    }));
-
-    leaderboardCache = {
-      computedAt: Date.now(),
-      entries,
-    };
-
+    const entries = generateLeaderboardEntries();
     return {
       leaderboard: entries,
       cached: false,
-      cacheExpiresInMs: LEADERBOARD_CACHE_TTL_MS,
+      cacheExpiresInMs: 0,
     };
   }
+
 
   async getMyStats(userId) {
     const user = await userRepository.findById(userId);
@@ -95,12 +165,13 @@ class StatsService {
     }
 
     const { startOfWeek, startOfMonth, startOfYear, end } = nowRangeBounds();
-    const [gamesThisWeek, gamesThisMonth, gamesThisYear, currentRank] = await Promise.all([
+    const [gamesThisWeek, gamesThisMonth, gamesThisYear] = await Promise.all([
       matchHistoryRepository.countMatchesInRange(userId, startOfWeek, end),
       matchHistoryRepository.countMatchesInRange(userId, startOfMonth, end),
       matchHistoryRepository.countMatchesInRange(userId, startOfYear, end),
-      statsRepository.countUsersRankedAbove(userId, user),
     ]);
+
+    const currentRank = getUserRank(userId);
 
     return {
       userId: user._id.toString(),
@@ -113,7 +184,7 @@ class StatsService {
       totalCoinsWon: user.totalCoinsWon ?? 0,
       totalCoinsLost: user.totalCoinsLost ?? 0,
       currentRank: currentRank,
-      unranked: user.totalGames < LEADERBOARD_MIN_GAMES,
+      unranked: false,
       rankPoints: user.rankPoints ?? 0,
       bestWinStreak: user.bestWinStreak ?? 0,
       currentWinStreak: user.currentWinStreak ?? 0,
@@ -136,7 +207,7 @@ class StatsService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Player not found');
     }
 
-    const currentRank = await statsRepository.countUsersRankedAbove(targetUserId, target);
+    const currentRank = getUserRank(targetUserId);
     const { startOfWeek, startOfMonth, startOfYear, end } = nowRangeBounds();
     const [gamesThisWeek, gamesThisMonth, gamesThisYear] = await Promise.all([
       matchHistoryRepository.countMatchesInRange(targetUserId, startOfWeek, end),
@@ -147,7 +218,7 @@ class StatsService {
     return {
       ...formatPublicUser(target),
       currentRank,
-      unranked: target.totalGames < LEADERBOARD_MIN_GAMES,
+      unranked: false,
       gamesThisWeek,
       gamesThisMonth,
       gamesThisYear,

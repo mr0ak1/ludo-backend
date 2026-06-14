@@ -48,6 +48,13 @@ router.post('/deposit', authMiddleware, walletController.initiateDeposit);
 router.get('/deposit/callback', walletController.verifyDepositCallback);
 
 /**
+ * @route GET /api/v1/wallet/payment-redirect
+ * @desc Redirects browser/WebView back to mobile app via deep linking
+ * @access Public
+ */
+router.get('/payment-redirect', walletController.handlePaymentRedirect);
+
+/**
  * @route GET /api/v1/wallet/deposit-config
  * @desc Get Deposit Configuration (UPI ID, etc)
  * @access Private

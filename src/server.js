@@ -61,6 +61,21 @@ io.engine.on('connection_error', (err) => {
 const gracefulShutdown = async () => {
   console.log('\nShutting down gracefully...');
   
+  try {
+    const probabilityService = require('./services/probabilityService');
+    probabilityService.stop();
+    console.log('Probability Service stopped');
+  } catch (err) {
+    console.error('Error stopping Probability Service:', err.message);
+  }
+
+  try {
+    io.close();
+    console.log('Socket.io server closed');
+  } catch (err) {
+    console.error('Error closing Socket.io:', err.message);
+  }
+  
   server.close(async () => {
     console.log('HTTP server closed');
     

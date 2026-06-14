@@ -531,7 +531,7 @@ class WalletService {
   /**
    * Initiate deposit via EKQR
    */
-  async initiateDeposit(userId, amount) {
+  async initiateDeposit(userId, amount, backendUrl) {
     if (amount < 10) {
       throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Minimum deposit amount is ₹10');
     }
@@ -545,7 +545,7 @@ class WalletService {
     }
 
     const User = require('../models/user.model');
-    const user = await User.findById(userId);
+    const user = await User.findByPk(userId);
 
     const client_txn_id = String(Math.floor(Math.random() * 900000) + 100000);
     const txn_date = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
@@ -562,9 +562,7 @@ class WalletService {
       metadata: { txn_date }
     });
 
-    // EKQR requires a valid public URL format, so we avoid localhost
-    const clientUrl = process.env.CLIENT_URL?.includes('localhost') ? 'https://google.com' : (process.env.CLIENT_URL || 'https://google.com');
-    const redirect_url = `${clientUrl}/payment-callback?client_txn_id=${client_txn_id}&txn_date=${txn_date}`;
+    const redirect_url = `${backendUrl}/api/v1/wallet/payment-redirect?client_txn_id=${client_txn_id}&txn_date=${txn_date}`;
     
     const rawPhone = String(user?.phone || '9999999999').replace(/\D/g, '');
     const safePhone = rawPhone.length >= 10 ? rawPhone.slice(-10) : rawPhone.padStart(10, '9');
@@ -610,7 +608,7 @@ class WalletService {
     }
 
     const Transaction = require('../models/transaction.model');
-    const txn = await Transaction.findOne({ transactionId: client_txn_id, type: 'deposit' });
+    const txn = await Transaction.findOne({ where: { transactionId: client_txn_id, type: 'deposit' } });
 
     if (!txn) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, "Transaction not found");

@@ -89,7 +89,10 @@ class WalletRepository {
       }
 
       if (wallet.isLocked) {
-        throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
+        const isGameplayLock = wallet.lockedReason && wallet.lockedReason.startsWith('Game in progress');
+        if (amount < 0 || !isGameplayLock) {
+          throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
+        }
       }
 
       if (amount < 0 && wallet.coins + amount < 0) {

@@ -228,8 +228,7 @@ const getAllWithdrawals = async (req, res, next) => {
     const { search } = req.query;
     const offset = (page - 1) * limit;
 
-    const Transaction = require('../models/transaction.model');
-    const User = require('../models/user.model');
+    const { Transaction, User } = require('../models');
 
     const where = { type: 'withdrawal' };
     if (req.query.status === 'history') {
@@ -305,7 +304,7 @@ const getAllWithdrawals = async (req, res, next) => {
 const approveWithdrawal = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const Transaction = require('../models/transaction.model');
+    const { Transaction } = require('../models');
     const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
@@ -328,7 +327,7 @@ const approveWithdrawal = async (req, res, next) => {
 const rejectWithdrawal = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const Transaction = require('../models/transaction.model');
+    const { Transaction } = require('../models');
     const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
@@ -359,8 +358,7 @@ const getAllDeposits = async (req, res, next) => {
     const { search } = req.query;
     const offset = (page - 1) * limit;
 
-    const Transaction = require('../models/transaction.model');
-    const User = require('../models/user.model');
+    const { Transaction, User } = require('../models');
 
     const where = { type: 'deposit' };
     if (req.query.status === 'history') {
@@ -436,7 +434,7 @@ const getAllDeposits = async (req, res, next) => {
 const approveDeposit = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const Transaction = require('../models/transaction.model');
+    const { Transaction } = require('../models');
     const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
@@ -462,7 +460,7 @@ const approveDeposit = async (req, res, next) => {
 const rejectDeposit = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const Transaction = require('../models/transaction.model');
+    const { Transaction } = require('../models');
     const transaction = await Transaction.findByPk(id);
 
     if (!transaction) throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Transaction not found');
@@ -490,7 +488,7 @@ const getUserWithdrawals = async (req, res, next) => {
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    const Transaction = require('../models/transaction.model');
+    const { Transaction } = require('../models');
 
     const { count, rows } = await Transaction.findAndCountAll({
       where: { userId: id, type: 'withdrawal' },
@@ -1247,7 +1245,7 @@ const getTransactionSummary = async (req, res, next) => {
       query.createdAt = { [Op.gte]: startDate, [Op.lte]: new Date() };
     }
 
-    const Transaction = require('../models/transaction.model');
+    const { Transaction } = require('../models');
     
     const transactions = await Transaction.findAll({
       where: query,
