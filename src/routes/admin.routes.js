@@ -274,10 +274,24 @@ router.get('/deposits', authMiddleware, adminMiddleware, adminController.getAllD
 router.post('/deposits/:id/approve', authMiddleware, adminMiddleware, adminController.approveDeposit);
 
 /**
- * @route POST /admin/deposits/:id/reject
+ * @route GET /admin/deposits/:id/reject
  * @desc Reject a deposit
  * @access Private (Admin)
  */
 router.post('/deposits/:id/reject', authMiddleware, adminMiddleware, adminController.rejectDeposit);
+
+/**
+ * @route GET /admin/support-config
+ * @desc Get support config (WhatsApp number)
+ * @access Private (Admin)
+ */
+router.get('/support-config', authMiddleware, adminMiddleware, adminController.getSupportConfig);
+
+/**
+ * @route POST /admin/support-config
+ * @desc Set support config (WhatsApp number)
+ * @access Private (Admin)
+ */
+router.post('/support-config', authMiddleware, adminMiddleware, adminController.setSupportConfig);
 
 module.exports = router;

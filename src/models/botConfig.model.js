@@ -46,6 +46,10 @@ BotConfig.init(
       type: DataTypes.STRING(255),
       defaultValue: '',
     },
+    whatsappNumber: {
+      type: DataTypes.STRING(20),
+      defaultValue: '',
+    },
   },
   {
     sequelize,

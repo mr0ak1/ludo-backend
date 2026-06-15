@@ -263,8 +263,8 @@ const BOT_FAKE_STATS = {
 
 // Matchmaking Configuration
 const MATCHMAKING_CONFIG = {
-  FAKE_QUEUE_DELAY_MIN: 2000,        // 2 seconds minimum wait
-  FAKE_QUEUE_DELAY_MAX: 5000,        // 5 seconds maximum wait
+  FAKE_QUEUE_DELAY_MIN: 1000,        // 1 second minimum wait
+  FAKE_QUEUE_DELAY_MAX: 7000,        // 7 seconds maximum wait
   QUEUE_TIMEOUT: 10 * 60 * 1000,     // 10 minutes queue timeout
 };
 

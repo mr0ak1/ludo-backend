@@ -1667,6 +1667,45 @@ const setPaymentGatewayConfig = async (req, res, next) => {
   }
 };
 
+const getSupportConfig = async (req, res, next) => {
+  try {
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = await BotConfig.create({});
+    }
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Support config retrieved', {
+        whatsappNumber: config.whatsappNumber || ''
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+const setSupportConfig = async (req, res, next) => {
+  try {
+    const { whatsappNumber } = req.body;
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = new BotConfig();
+    }
+    
+    if (whatsappNumber !== undefined) config.whatsappNumber = String(whatsappNumber);
+    
+    await config.save();
+    
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Support config updated successfully', {
+        whatsappNumber: config.whatsappNumber
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   adminLogin,
   getDashboard,
@@ -1707,4 +1746,6 @@ module.exports = {
   setReferralConfig,
   getPaymentGatewayConfig,
   setPaymentGatewayConfig,
+  getSupportConfig,
+  setSupportConfig,
 };

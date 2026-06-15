@@ -858,7 +858,6 @@ class GameService {
           await executeLogic(txn);
         });
       }
-      return formattedGame;
     } catch (error) {
       if (error instanceof ApiError) throw error;
       logger.error('Error completing game:', error);
@@ -960,12 +959,56 @@ class GameService {
         userId,
       });
 
-      logger.info(`User ${userId} disconnected from game ${game._id}. Auto-surrendering immediately.`);
+      logger.info(`User ${userId} disconnected from game ${game._id}. Waiting 10 seconds for reconnection before auto-surrendering.`);
 
-      // Auto-surrender instantly
-      await this.surrenderGame(game._id, userId);
+      // Wait 10 seconds before checking if they reconnected
+      setTimeout(async () => {
+        try {
+          const checkGame = await gameRepository.findById(game._id);
+          // If the game is still active, verify if the player has reconnected
+          if (checkGame && checkGame.status === GAME_STATUS.ACTIVE) {
+            const player = checkGame.players.find(
+              p => toUserIdString(p.userId) === userId
+            );
+            if (player && !player.isActive) {
+              logger.info(`User ${userId} did not reconnect within 10 seconds. Auto-surrendering now.`);
+              await this.surrenderGame(checkGame._id, userId);
+            } else {
+              logger.info(`User ${userId} reconnected within 10 seconds. Skipping auto-surrender.`);
+            }
+          }
+        } catch (err) {
+          logger.error('Error in deferred handleDisconnect check:', err);
+        }
+      }, 10000);
     } catch (error) {
       logger.error('Error handling disconnect:', error);
+    }
+  }
+
+  /**
+   * Mark player as active (on socket connect/reconnect)
+   * @param {String} gameId - Game ID
+   * @param {String} userId - User ID
+   */
+  async markPlayerActive(gameId, userId) {
+    try {
+      const game = await gameRepository.findById(gameId);
+      if (!game) return;
+
+      const playerIndex = game.players.findIndex(
+        p => toUserIdString(p.userId) === String(userId)
+      );
+
+      if (playerIndex !== -1) {
+        await gameRepository.updatePlayerBoard(gameId, playerIndex, {
+          isActive: true,
+          disconnectedAt: null
+        });
+        logger.info(`User ${userId} marked active in game ${gameId}`);
+      }
+    } catch (error) {
+      logger.error('Error marking player active:', error);
     }
   }
 
@@ -1979,6 +2022,9 @@ class GameService {
       results: game.results,
       entryFee: game.betAmount || game.entryFee || 0,
       betAmount: game.betAmount || game.entryFee || 0,
+      prizeAmount: game.gameType === 'cash' && (game.betAmount || game.entryFee) > 0
+        ? (game.betAmount || game.entryFee) + Math.floor((game.betAmount || game.entryFee) * 0.9 * ((game.maxPlayers || (game.players ? game.players.length : 2)) - 1))
+        : 0,
       createdAt: game.createdAt,
       updatedAt: game.updatedAt,
     };

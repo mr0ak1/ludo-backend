@@ -69,6 +69,16 @@ const gameSocket = (socket, io) => {
 
     try {
       const gameService = require('../services/gameService');
+
+      // Mark player as active on socket join
+      if (socket.userId && data && data.gameId) {
+        try {
+          await gameService.markPlayerActive(data.gameId, socket.userId);
+        } catch (err) {
+          console.error('Error marking player active on socket join:', err);
+        }
+      }
+
       const formattedGame = await gameService.restoreGameState(data.gameId);
       
       if (socket.userId && formattedGame.players) {
@@ -136,6 +146,16 @@ const gameSocket = (socket, io) => {
     socket.join(room);
     try {
       const gameService = require('../services/gameService');
+
+      // Mark player as active on socket reconnect
+      if (socket.userId && data && data.gameId) {
+        try {
+          await gameService.markPlayerActive(data.gameId, socket.userId);
+        } catch (err) {
+          console.error('Error marking player active on socket reconnect:', err);
+        }
+      }
+
       const formattedGame = await gameService.restoreGameState(data.gameId);
       socket.emit(SERVER_EVENTS.GAME_STATE_SYNC, {
         gameId: data.gameId,

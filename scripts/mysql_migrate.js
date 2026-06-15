@@ -59,6 +59,7 @@ async function migrate() {
         paymentGatewayKey: '',
         upiId: '',
         paytmMerchantId: '',
+        whatsappNumber: '',
       },
     });
     console.log(createdBot ? '✅  BotConfig seeded' : 'ℹ️   BotConfig already exists');

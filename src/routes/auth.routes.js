@@ -75,4 +75,11 @@ router.delete('/delete-account', authMiddleware, authController.deleteAccount);
  */
 router.get('/status', authMiddleware, authController.checkStatus);
 
+/**
+ * @route GET /api/v1/auth/settings
+ * @desc Get public settings (WhatsApp number, etc.)
+ * @access Public
+ */
+router.get('/settings', authController.getPublicSettings);
+
 module.exports = router;

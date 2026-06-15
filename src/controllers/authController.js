@@ -222,6 +222,29 @@ const getReferralHistory = async (req, res, next) => {
   }
 };
 
+const BotConfig = require('../models/botConfig.model');
+
+/**
+ * Get public settings (WhatsApp support number, etc.)
+ * GET /api/v1/auth/settings
+ */
+const getPublicSettings = async (req, res, next) => {
+  try {
+    let config = await BotConfig.findOne();
+    if (!config) {
+      config = await BotConfig.create({});
+    }
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Settings retrieved successfully', {
+        whatsappNumber: config.whatsappNumber || ''
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   sendOtp,
   verifyOtp,
@@ -232,4 +255,5 @@ module.exports = {
   deleteAccount,
   checkStatus,
   getReferralHistory,
+  getPublicSettings,
 };
