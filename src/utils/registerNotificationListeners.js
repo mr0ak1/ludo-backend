@@ -11,6 +11,7 @@ let registered = false;
 function toIdString(ref) {
   if (ref == null) return null;
   if (typeof ref === 'string') return ref;
+  if (ref.id) return ref.id.toString();
   if (ref._id) return ref._id.toString();
   return ref.toString();
 }

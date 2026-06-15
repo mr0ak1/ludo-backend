@@ -41,7 +41,7 @@ class BotChatService {
         
         // Emit chat event via gameEvents
         gameEvents.emit('CHAT_SENT', {
-          gameId: game._id,
+          gameId: game.id || game.gameId || game._id,
           playerId: botPlayer.userId,
           playerName: botPlayer.playerName,
           message,
@@ -50,7 +50,7 @@ class BotChatService {
           timestamp: new Date(),
         });
 
-        logger.info(`Bot ${botPlayer.playerName} sent message: "${message}" in game ${game._id}`);
+        logger.info(`Bot ${botPlayer.playerName} sent message: "${message}" in game ${game.id || game.gameId || game._id}`);
       }, delay);
     } catch (error) {
       logger.error('Error in botChatService.sendBotQuickMessage:', error);
@@ -83,7 +83,7 @@ class BotChatService {
       const message = messages[Math.floor(Math.random() * messages.length)];
 
       gameEvents.emit('CHAT_SENT', {
-        gameId: game._id,
+        gameId: game.id || game.gameId || game._id,
         playerId: botPlayer.userId,
         playerName: botPlayer.playerName,
         message,
@@ -92,7 +92,7 @@ class BotChatService {
         timestamp: new Date(),
       });
 
-      logger.info(`Bot ${botPlayer.playerName} sent reaction: "${message}" in game ${game._id}`);
+      logger.info(`Bot ${botPlayer.playerName} sent reaction: "${message}" in game ${game.id || game.gameId || game._id}`);
     } catch (error) {
       logger.error('Error in botChatService.sendBotReactionMessage:', error);
     }

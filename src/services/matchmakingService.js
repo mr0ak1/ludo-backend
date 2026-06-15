@@ -124,7 +124,7 @@ class MatchmakingService {
       });
 
       // Simulate finding match with fake delay
-      this._simulateQueueMatch(queueEntry._id, userId, options);
+      this._simulateQueueMatch(queueEntry.id || queueEntry._id, userId, options);
 
       return queueEntry;
     } catch (error) {
@@ -221,23 +221,23 @@ class MatchmakingService {
 
       setImmediate(() => {
         notificationService
-          .notifyMatchFound(userId, { gameId: game._id, opponentName })
+          .notifyMatchFound(userId, { gameId: game.id || game.gameId || game._id, opponentName })
           .catch((err) => logger.error('notifyMatchFound failed:', err.message));
       });
 
       // Update queue entry with match info
-      await queueRepository.update(queueEntry._id, {
+      await queueRepository.update(queueEntry.id || queueEntry._id, {
         status: 'matched',
         matchedAt: new Date(),
-        matchedGameId: game._id,
+        matchedGameId: game.id || game.gameId || game._id,
         matchedPlayerId: game.players[1].userId, // Bot user ID
       });
 
-      logger.info(`User ${userId} matched with bot in game ${game._id}`);
+      logger.info(`User ${userId} matched with bot in game ${game.id || game.gameId || game._id}`);
     } catch (error) {
       logger.error('Error matching with bot:', error);
       // Cancel queue on error
-      await queueRepository.cancel(queueEntry._id, 'Match failed');
+      await queueRepository.cancel(queueEntry.id || queueEntry._id, 'Match failed');
     }
   }
 
@@ -258,7 +258,7 @@ class MatchmakingService {
         throw new Error('Already matched, cannot leave');
       }
 
-      return await queueRepository.cancel(queueEntry._id, 'User cancelled');
+      return await queueRepository.cancel(queueEntry.id || queueEntry._id, 'User cancelled');
     } catch (error) {
       logger.error('Error leaving queue:', error);
       throw error;
@@ -289,7 +289,7 @@ class MatchmakingService {
       // Estimate position (fake, for display)
       const allWaiting = await queueRepository.findWaitingByGameType(queueEntry.gameType);
       const position =
-        allWaiting.findIndex((q) => q._id.toString() === queueEntry._id.toString()) + 1;
+        allWaiting.findIndex((q) => (q.id || q._id).toString() === (queueEntry.id || queueEntry._id).toString()) + 1;
 
       return {
         inQueue: true,

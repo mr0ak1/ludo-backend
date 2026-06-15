@@ -25,7 +25,7 @@ class NotificationService {
   async _maybeSendPush(userId, notificationDoc, title, body) {
     const user = await userRepository.findById(userId);
     if (!user || !user.deviceTokens?.length) {
-      await notificationRepository.updateDeliveryMeta(notificationDoc._id, {
+      await notificationRepository.updateDeliveryMeta(notificationDoc.id || notificationDoc._id, {
         isSent: false,
         sentAt: null,
         sendError: null,
@@ -36,7 +36,7 @@ class NotificationService {
     try {
       const data = {
         type: notificationDoc.type,
-        notificationId: String(notificationDoc._id),
+        notificationId: String(notificationDoc.id || notificationDoc._id),
         ...(notificationDoc.data && typeof notificationDoc.data === 'object' ? notificationDoc.data : {}),
       };
       const { successCount, failureCount, invalidTokens } = await sendMulticastNotification(
@@ -53,14 +53,14 @@ class NotificationService {
       }
 
       const ok = successCount > 0;
-      await notificationRepository.updateDeliveryMeta(notificationDoc._id, {
+      await notificationRepository.updateDeliveryMeta(notificationDoc.id || notificationDoc._id, {
         isSent: ok,
         sentAt: ok ? new Date() : null,
         sendError: failureCount > 0 && successCount === 0 ? 'All FCM deliveries failed' : null,
       });
     } catch (err) {
       logger.error('FCM push failed:', err.message);
-      await notificationRepository.updateDeliveryMeta(notificationDoc._id, {
+      await notificationRepository.updateDeliveryMeta(notificationDoc.id || notificationDoc._id, {
         isSent: false,
         sentAt: null,
         sendError: err.message || 'FCM error',

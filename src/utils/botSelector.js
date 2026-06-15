@@ -78,7 +78,7 @@ function createBotPlayerObject(bot, position, difficulty) {
   const color = colors[position];
   
   return {
-    userId: bot._id.toString(),
+    userId: (bot.id || bot._id).toString(),
     position,
     playerColor: color,
     preferredColor: color,

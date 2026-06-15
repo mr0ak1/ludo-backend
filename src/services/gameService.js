@@ -35,6 +35,7 @@ const DISCONNECT_TIMEOUT = 30000; // 30 seconds
 function toUserIdString(ref) {
   if (ref == null) return null;
   if (typeof ref === 'string') return ref;
+  if (ref.id) return ref.id.toString();
   if (ref._id) return ref._id.toString();
   return ref.toString();
 }
@@ -42,12 +43,13 @@ function toUserIdString(ref) {
 function scheduleNewGameNotifications(game) {
   setImmediate(async () => {
     try {
+      const gId = game.gameId || game.id;
       for (const p of game.players) {
         const uid = toUserIdString(p.userId);
         if (!uid) continue;
         const u = await userRepository.findById(uid);
         if (u && !u.isBot) {
-          await notificationService.notifyGameStarted(uid, { gameId: game._id });
+          await notificationService.notifyGameStarted(uid, { gameId: gId });
         }
       }
       const first = game.players[game.currentTurn];
@@ -55,10 +57,10 @@ function scheduleNewGameNotifications(game) {
       const fid = toUserIdString(first.userId);
       const fu = await userRepository.findById(fid);
       if (fu && !fu.isBot) {
-        await notificationService.notifyYourTurn(fid, { gameId: game._id });
+        await notificationService.notifyYourTurn(fid, { gameId: gId });
       }
-    } catch (e) {
-      logger.error('New game notification error:', e.message);
+    } catch (err) {
+      logger.error('Error sending game start notifications:', err);
     }
   });
 }
@@ -130,15 +132,16 @@ class GameService {
       };
 
       const game = await gameRepository.create(gameData);
-      logger.info(`Practice game created with ${players.length} players: ${game._id}`);
+      const gId = game.gameId || game.id;
+      logger.info(`Practice game created with ${players.length} players: ${gId}`);
       
       // Trigger bot turn if first player is bot
       if (game.players.length > 0) {
-        this._scheduleTurnTimeout(game._id.toString(), TURN_TIMEOUT / 1000)
+        this._scheduleTurnTimeout(gId.toString(), TURN_TIMEOUT / 1000)
           .then(() => {
-            setImmediate(() => this._triggerBotTurn(game._id.toString()));
+            setImmediate(() => this._triggerBotTurn(gId.toString()));
           })
-          .catch(err => logger.error('Error starting initial turn timeout:', err));
+          .catch(err => logger.error('Error in practice game startup scheduling:', err));
       }
 
       scheduleNewGameNotifications(game);
@@ -192,6 +195,7 @@ class GameService {
 
               const prospective = {
                 _id: 'prospective',
+                gameId: 'prospective',
                 betAmount: entryFee || 0,
                 createdAt: new Date(),
                 players: [],
@@ -205,7 +209,7 @@ class GameService {
                 const timeA = new Date(a.createdAt).getTime();
                 const timeB = new Date(b.createdAt).getTime();
                 if (timeA !== timeB) return timeA - timeB;
-                return String(a._id).localeCompare(String(b._id));
+                return String(a.gameId || a.id).localeCompare(String(b.gameId || b.id));
               });
 
               const total = allGames.length;
@@ -214,7 +218,7 @@ class GameService {
               else if (config.winProbability === 0) easyCount = 0;
               else easyCount = Math.floor((total * config.winProbability) / 100);
 
-              const index = allGames.findIndex(g => String(g._id) === 'prospective');
+              const index = allGames.findIndex(g => String(g.gameId || g.id) === 'prospective');
               if (index >= 0) {
                 botDifficulty = index < easyCount ? 'easy' : 'hard';
               }
@@ -283,15 +287,16 @@ class GameService {
       };
 
       const game = await gameRepository.create(gameData);
-      logger.info(`Cash game created with ${players.length} players and entry fee ${entryFee}: ${game._id}`);
+      const gId = game.gameId || game.id;
+      logger.info(`Cash game created with ${players.length} players and entry fee ${entryFee}: ${gId}`);
       
       // Trigger bot turn if first player is bot
       if (game.players.length > 0) {
-        this._scheduleTurnTimeout(game._id.toString(), TURN_TIMEOUT / 1000)
+        this._scheduleTurnTimeout(gId.toString(), TURN_TIMEOUT / 1000)
           .then(() => {
-            setImmediate(() => this._triggerBotTurn(game._id.toString()));
+            setImmediate(() => this._triggerBotTurn(gId.toString()));
           })
-          .catch(err => logger.error('Error starting initial turn timeout:', err));
+          .catch(err => logger.error('Error in cash game startup scheduling:', err));
       }
 
       scheduleNewGameNotifications(game);
@@ -408,7 +413,7 @@ class GameService {
         throw new ApiError(HTTP_STATUS.NOT_FOUND, 'No active game');
       }
 
-      const resolvedGame = await this._handleTurnTimeout(game._id, game);
+      const resolvedGame = await this._handleTurnTimeout(game.gameId || game.id, game);
       return this._formatGameResponse(resolvedGame);
     } catch (error) {
       if (error instanceof ApiError) throw error;
@@ -949,22 +954,23 @@ class GameService {
         return;
       }
 
-      await gameRepository.updatePlayerBoard(game._id, playerIndex, {
+      const gId = game.gameId || game.id;
+      await gameRepository.updatePlayerBoard(gId, playerIndex, {
         disconnectedAt: new Date(),
         isActive: false,
       });
 
       gameEvents.emit(SERVER_EVENTS.PLAYER_DISCONNECTED, {
-        gameId: game._id,
+        gameId: gId,
         userId,
       });
 
-      logger.info(`User ${userId} disconnected from game ${game._id}. Waiting 10 seconds for reconnection before auto-surrendering.`);
+      logger.info(`User ${userId} disconnected from game ${gId}. Waiting 10 seconds for reconnection before auto-surrendering.`);
 
       // Wait 10 seconds before checking if they reconnected
       setTimeout(async () => {
         try {
-          const checkGame = await gameRepository.findById(game._id);
+          const checkGame = await gameRepository.findById(gId);
           // If the game is still active, verify if the player has reconnected
           if (checkGame && checkGame.status === GAME_STATUS.ACTIVE) {
             const player = checkGame.players.find(
@@ -972,7 +978,7 @@ class GameService {
             );
             if (player && !player.isActive) {
               logger.info(`User ${userId} did not reconnect within 10 seconds. Auto-surrendering now.`);
-              await this.surrenderGame(checkGame._id, userId);
+              await this.surrenderGame(checkGame.gameId || checkGame.id, userId);
             } else {
               logger.info(`User ${userId} reconnected within 10 seconds. Skipping auto-surrender.`);
             }
@@ -1991,20 +1997,20 @@ class GameService {
       : [];
 
     return {
-      _id: game._id,
+      _id: game.gameId || game.id,
       gameType: game.gameType,
       status: game.status,
       maxPlayers: game.maxPlayers,
       currentTurn: game.currentTurn,
       players: game.players.map((p, idx) => {
-        const isPopulated = p.userId && typeof p.userId === 'object' && p.userId._id;
+        const isPopulated = p.userId && typeof p.userId === 'object' && (p.userId.id || p.userId._id);
         // Use playerName if set (for bots), otherwise use populated User name
         const playerName = p.playerName || (isPopulated ? p.userId.name : 'Player');
         return {
           position: p.position ?? idx,
           userId: toUserIdString(p.userId),
           name: playerName,
-          avatar: isPopulated ? p.userId.avatar : null,
+          avatar: isPopulated ? (p.userId.avatar || null) : null,
           preferredColor: p.preferredColor || 'red',
           tokens: p.tokens,
           isHome: (p.isHome && p.isHome.length === 4) ? p.isHome : p.tokens.map(t => t.position === 56),

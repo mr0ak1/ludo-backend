@@ -51,8 +51,8 @@ const _playerId = (p) => {
   if (!p) return null;
   const val = p.userId ?? p.playerId;
   if (!val) return null;
-  if (typeof val === 'object' && val._id) {
-    return val._id;
+  if (typeof val === 'object' && (val.id || val._id)) {
+    return val.id || val._id;
   }
   return val;
 };
