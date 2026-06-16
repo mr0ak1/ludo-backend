@@ -36,6 +36,7 @@ const initializeRedis = async () => {
     }
     return redisClient;
   } catch (error) {
+    redisClient = null;
     if (config.isDevelopment) {
       console.warn('Redis connection failed (optional for development):', error.message);
       return null;

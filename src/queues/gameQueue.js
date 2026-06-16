@@ -19,6 +19,10 @@ if (!config.isDevelopment && !config.isTest) {
     maxRetriesPerRequest: null,
   });
 
+  connection.on('error', (err) => {
+    logger.error('BullMQ Redis connection error:', err.message);
+  });
+
   gameQueue = new Queue(GAME_QUEUE_NAME, {
     connection,
     defaultJobOptions: {
@@ -30,6 +34,10 @@ if (!config.isDevelopment && !config.isTest) {
         delay: 1000,
       },
     },
+  });
+
+  gameQueue.on('error', (err) => {
+    logger.error('BullMQ Queue error:', err.message);
   });
 }
 
@@ -77,6 +85,10 @@ const initializeGameWorkers = (gameService) => {
 
   worker.on('failed', (job, err) => {
     logger.error(`Job ${job.id} failed:`, err);
+  });
+
+  worker.on('error', (err) => {
+    logger.error('BullMQ Worker error:', err.message);
   });
 
   logger.info('Game action workers initialized');

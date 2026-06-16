@@ -14,8 +14,8 @@ const LOCK_TTL_SECONDS = 5;
 const withRedisLock = async (key, callback) => {
   const client = getRedisClient();
   
-  // If Redis is not initialized (e.g., local dev without Redis), bypass lock
-  if (!client) {
+  // If Redis is not initialized or not connected, bypass lock
+  if (!client || !client.isOpen) {
     return await callback();
   }
 
