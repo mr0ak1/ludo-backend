@@ -8,10 +8,10 @@ const hasPlayerWon = (playerTokens) => {
     return false;
   }
 
-  // Check if all tokens have reached final home position
+  // Check if any token has reached final home position
   const FINAL_POSITION = BOARD_POSITIONS + HOME_POSITIONS - 1;
-  const allTokensHome = playerTokens.every((token) => token.position === FINAL_POSITION);
-  return allTokensHome;
+  const anyTokenHome = playerTokens.some((token) => token.position === FINAL_POSITION);
+  return anyTokenHome;
 };
 
 /**
@@ -24,7 +24,7 @@ const getCompletionPercentage = (playerTokens) => {
 
   const FINAL_POSITION = BOARD_POSITIONS + HOME_POSITIONS - 1;
   const tokensHome = playerTokens.filter((token) => token.position === FINAL_POSITION).length;
-  return Math.round((tokensHome / playerTokens.length) * 100);
+  return tokensHome >= 1 ? 100 : 0;
 };
 
 /**
