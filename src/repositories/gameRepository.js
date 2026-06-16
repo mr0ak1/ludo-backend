@@ -209,6 +209,7 @@ class GameRepository {
         }
       }
 
+      game.changed('players', true);
       await game.update(updates);
       logger.info(`Player added to game ${gameId}`);
       return game.toJSON();
@@ -242,7 +243,7 @@ class GameRepository {
       if (boardData.isActive !== undefined) player.isActive = boardData.isActive;
       if (boardData.missedTurns !== undefined) player.missedTurns = boardData.missedTurns;
       players[playerIndex] = player;
-
+      game.changed('players', true);
       await game.update(
         { players, currentTurnCount: game.currentTurnCount + 1 },
         { transaction: options.transaction }
@@ -268,7 +269,7 @@ class GameRepository {
 
       const moves = game.moves || [];
       moves.push({ ...moveData, timestamp: new Date() });
-
+      game.changed('moves', true);
       await game.update(
         { moves, currentTurnCount: game.currentTurnCount + 1 },
         { transaction: options.transaction }
@@ -348,7 +349,7 @@ class GameRepository {
 
       const results = game.results || {};
       results.surrenderedBy = userId;
-
+      game.changed('results', true);
       await game.update(
         { status: GAME_STATUS.SURRENDERED, endedAt: new Date(), endTime: new Date(), results },
         { transaction: options.transaction }
