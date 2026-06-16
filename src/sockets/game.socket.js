@@ -83,7 +83,7 @@ const gameSocket = (socket, io) => {
       
       if (socket.userId && formattedGame.players) {
         const isParticipant = formattedGame.players.some(
-          (p) => p.userId === socket.userId
+          (p) => String(p.userId) === String(socket.userId)
         );
         if (!isParticipant) {
           socket.leave(room);
