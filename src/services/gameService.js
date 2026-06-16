@@ -1493,11 +1493,11 @@ class GameService {
       // 3. Hard Mode: Rigged against human (same logic as before)
       if (botDifficulty === 'hard') {
         const humanCompleted = humanPlayer.tokens.filter((t, i) => Number(t.position) === 56 || humanPlayer.isHome[i]).length;
-        const isUserWinning = humanPlayer.tokens.some(t => Number(t.position) >= 45 && Number(t.position) < 56);
+        const isUserWinning = humanCompleted >= 2;
 
         if (!isBotRoll) {
-          // Anti-required move for human's token to enter home and win
-          if (humanCompleted === 0) {
+          // Anti-required move for human's last token to enter home
+          if (humanCompleted === 3) {
             let requiredValueToWin = null;
             for (let i = 0; i < 4; i++) {
               if (!humanPlayer.isHome[i] && humanPlayer.tokens[i].position >= 50 && humanPlayer.tokens[i].position < 56) {
@@ -1876,7 +1876,7 @@ class GameService {
     }
 
     // Check for win using the clone: tokens must be at position 56
-    const hasWon = currentPlayer.tokens.some(t => Number(t.position) === 56) || currentPlayer.isHome.some(h => h === true);
+    const hasWon = currentPlayer.tokens.every(t => Number(t.position) === 56) || currentPlayer.isHome.every(h => h === true);
     
     logger.info(`Checking win for player ${playerIndex}: hasWon=${hasWon}, tokens=${JSON.stringify(currentPlayer.tokens)}, isHome=${JSON.stringify(currentPlayer.isHome)}`);
 
