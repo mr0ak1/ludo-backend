@@ -7,9 +7,8 @@ const { GAME_STATUS } = require('../constants/game.constants');
 const logger = require('../utils/logger');
 
 function _buildWhere(gameId) {
-  const numericId = parseInt(gameId, 10);
-  if (!isNaN(numericId)) {
-    return { [Op.or]: [{ id: numericId }, { gameId: String(gameId) }] };
+  if (/^\d+$/.test(gameId)) {
+    return { [Op.or]: [{ id: parseInt(gameId, 10) }, { gameId: String(gameId) }] };
   }
   return { gameId: String(gameId) };
 }

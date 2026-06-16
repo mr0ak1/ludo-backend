@@ -116,7 +116,7 @@ class MatchmakingService {
       // Create queue entry
       const queueEntry = await queueRepository.create(userId, {
         gameType: options.gameType || 'cash',
-        betAmount: options.betAmount || 0,
+        betAmount: options.entryFee || options.betAmount || 0,
         preferences: {
           allowBot: true, // Always allow bots for now
           botDifficulty: this.globalBotDifficulty,
