@@ -34,7 +34,7 @@ app.set('trust proxy', 1);
 // Security Middlewares
 app.use(helmet());
 app.use(cors({
-  origin: [config.clientUrl, config.adminUrl],
+  origin: true,
   credentials: true,
   optionsSuccessStatus: 200,
 }));

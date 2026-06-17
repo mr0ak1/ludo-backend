@@ -2,9 +2,9 @@ const config = require('./env');
 
 const getSocketOptions = () => ({
   cors: {
-    origin: [config.clientUrl, config.adminUrl],
+    origin: true,
     credentials: true,
-    methods: ['GET', 'POST'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   },
   transports: ['websocket', 'polling'],
   reconnection: true,
@@ -44,7 +44,7 @@ const configureSocket = (io) => {
 
   // CORS configuration
   io.engine.on('initial_headers', (headers, req) => {
-    headers['Access-Control-Allow-Origin'] = config.clientUrl;
+    headers['Access-Control-Allow-Origin'] = req.headers.origin || '*';
     headers['Access-Control-Allow-Credentials'] = 'true';
   });
 
