@@ -130,7 +130,20 @@ class WalletService {
    * @param {String} reason - Reason for addition
    * @returns {Promise<Object>} Updated wallet
    */
-  async addCoins(userId, amount, reason) {
+  async addCoins(userId, amount, arg3, arg4) {
+    let type = 'admin_add';
+    let reason = arg3;
+    
+    if (arg4 !== undefined) {
+      type = arg3;
+      reason = arg4;
+    } else if (typeof arg3 === 'string') {
+      const lower = arg3.toLowerCase();
+      if (lower.includes('referral')) type = 'referral_bonus';
+      else if (lower.includes('deposit')) type = 'deposit';
+      else if (lower.includes('refund')) type = 'refund';
+    }
+
     try {
       const user = await userRepository.findById(userId);
       if (!user) {
@@ -151,7 +164,7 @@ class WalletService {
       // Log transaction
       await transactionRepository.create({
         userId,
-        type: 'admin_add',
+        type,
         amount,
         reason,
         beforeBalance: previousBalance,
@@ -187,7 +200,19 @@ class WalletService {
    * @param {String} reason - Reason for deduction
    * @returns {Promise<Object>} Updated wallet
    */
-  async deductCoins(userId, amount, reason) {
+  async deductCoins(userId, amount, arg3, arg4) {
+    let type = 'admin_deduct';
+    let reason = arg3;
+    
+    if (arg4 !== undefined) {
+      type = arg3;
+      reason = arg4;
+    } else if (typeof arg3 === 'string') {
+      const lower = arg3.toLowerCase();
+      if (lower.includes('withdrawal')) type = 'withdrawal';
+      else if (lower.includes('penalty')) type = 'penalty';
+    }
+
     try {
       const user = await userRepository.findById(userId);
       if (!user) {
@@ -213,7 +238,7 @@ class WalletService {
       // Log transaction
       await transactionRepository.create({
         userId,
-        type: 'admin_deduct',
+        type,
         amount: -amount,
         reason,
         beforeBalance: previousBalance,
