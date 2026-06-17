@@ -54,6 +54,7 @@ const avatarSchema = Joi.string()
 const validateSendOtp = (data) => {
   const schema = Joi.object({
     phone: phoneSchema,
+    referralCode: Joi.string().trim().uppercase().optional(),
   });
 
   return schema.validate(data, { abortEarly: false });
