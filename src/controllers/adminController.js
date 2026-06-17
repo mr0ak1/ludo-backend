@@ -551,6 +551,87 @@ const banUser = async (req, res, next) => {
 };
 
 /**
+ * Unban a user
+ * POST /admin/unban-user
+ */
+const unbanUser = async (req, res, next) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'userId is required');
+    }
+
+    const user = await userRepository.findById(userId);
+    if (!user) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
+    }
+
+    if (!user.isBanned) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'User is not banned');
+    }
+
+    const unbannedUser = await userRepository.unbanUser(userId);
+
+    logger.info(`User ${userId} unbanned by admin.`);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'User unbanned successfully', {
+        userId: unbannedUser.id || unbannedUser._id,
+        isBanned: unbannedUser.isBanned,
+      })
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Permanently delete a user and their data
+ * DELETE /admin/user/:id
+ */
+const deleteUser = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'userId is required');
+    }
+
+    const user = await userRepository.findById(id);
+    if (!user) {
+      throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
+    }
+
+    // Explicitly destroy related data to ensure clean deletion
+    const { Transaction, Wallet, Notification, Queue } = require('../models');
+    
+    // Delete transactions
+    await Transaction.destroy({ where: { userId: id } });
+    
+    // Delete notifications
+    await Notification.destroy({ where: { userId: id } });
+    
+    // Delete from queue
+    await Queue.destroy({ where: { userId: id } });
+
+    // Delete wallet
+    await Wallet.destroy({ where: { userId: id } });
+
+    // Delete the user
+    await userRepository.delete(id);
+
+    logger.warn(`User ${id} permanently deleted by admin.`);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'User and associated data permanently deleted successfully')
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
  * Suspend a user
  * POST /admin/suspend-user
  */
@@ -1748,4 +1829,6 @@ module.exports = {
   setPaymentGatewayConfig,
   getSupportConfig,
   setSupportConfig,
+  deleteUser,
+  unbanUser,
 };

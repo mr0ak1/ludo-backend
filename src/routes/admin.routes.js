@@ -69,6 +69,20 @@ router.post('/withdrawals/:id/reject', authMiddleware, adminMiddleware, adminCon
 router.post('/ban-user', authMiddleware, adminMiddleware, adminController.banUser);
 
 /**
+ * @route POST /admin/unban-user
+ * @desc Unban a user
+ * @access Private (Admin)
+ */
+router.post('/unban-user', authMiddleware, adminMiddleware, adminController.unbanUser);
+
+/**
+ * @route DELETE /admin/user/:id
+ * @desc Permanently delete a user
+ * @access Private (Admin)
+ */
+router.delete('/user/:id', authMiddleware, adminMiddleware, adminController.deleteUser);
+
+/**
  * @route POST /admin/suspend-user
  * @desc Suspend a user
  * @access Private (Admin)
