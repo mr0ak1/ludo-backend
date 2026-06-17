@@ -673,7 +673,7 @@ class GameService {
         }
 
         const playerIndex = game.players.findIndex(
-          p => toUserIdString(p.userId) === userId
+          p => toUserIdString(p.userId) === String(userId)
         );
 
         if (playerIndex === -1) {
@@ -900,7 +900,7 @@ class GameService {
       const resolvedGame = await this._handleTurnTimeout(gameId, game);
 
       const playerIndex = resolvedGame.players.findIndex(
-        p => toUserIdString(p.userId) === userId
+        p => toUserIdString(p.userId) === String(userId)
       );
 
       if (playerIndex === -1) {
@@ -947,7 +947,7 @@ class GameService {
       }
 
       const playerIndex = game.players.findIndex(
-        p => toUserIdString(p.userId) === userId
+        p => toUserIdString(p.userId) === String(userId)
       );
 
       if (playerIndex === -1) {
@@ -974,7 +974,7 @@ class GameService {
           // If the game is still active, verify if the player has reconnected
           if (checkGame && checkGame.status === GAME_STATUS.ACTIVE) {
             const player = checkGame.players.find(
-              p => toUserIdString(p.userId) === userId
+              p => toUserIdString(p.userId) === String(userId)
             );
             if (player && !player.isActive) {
               logger.info(`User ${userId} did not reconnect within 10 seconds. Auto-surrendering now.`);
@@ -1562,7 +1562,7 @@ class GameService {
             }
           }
 
-          if (requiredValue) {
+          if (requiredValue && crypto.randomInt(0, 100) < 30) {
             diceValue = requiredValue;
           } else if (isUserWinning) {
             if (crypto.randomInt(0, 100) < 66) {

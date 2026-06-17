@@ -279,6 +279,28 @@ class UserRepository {
   }
 
   /**
+   * Unban a user
+   * @param {String|Number} userId - User ID
+   * @returns {Promise<Object>} Updated user
+   */
+  async unbanUser(userId) {
+    try {
+      const numericId = parseInt(userId, 10);
+      const user = await User.findByPk(numericId);
+      if (!user) {
+        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
+      }
+
+      await user.update({ isBanned: false, banReason: null });
+      logger.info(`User unbanned: ${userId}`);
+      return user.toJSON();
+    } catch (error) {
+      logger.error('Error unbanning user:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Suspend a user
    * @param {String|Number} userId - User ID
    * @param {String} reason - Suspension reason

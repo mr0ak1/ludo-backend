@@ -235,8 +235,8 @@ class AuthService {
       this.otpSessions.delete(normalizedPhone);
 
       // Generate JWT tokens
-      const accessToken = generateToken(user._id);
-      const refreshToken = generateRefreshToken(user._id);
+      const accessToken = generateToken(user.id || user._id);
+      const refreshToken = generateRefreshToken(user.id || user._id);
 
       return {
         user,
