@@ -11,7 +11,7 @@ const sequelize = new Sequelize(
     dialect: 'mysql',
     logging: config.isDevelopment ? (msg) => require('../utils/logger').debug(msg) : false,
     pool: {
-      max: 10,
+      max: 30,
       min: 0,
       acquire: 30000,
       idle: 10000,
