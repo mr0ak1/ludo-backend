@@ -43,10 +43,13 @@ const NOTIFICATION_TEMPLATES = {
     title: 'Your turn',
     body: 'It is your turn to roll or move.',
   }),
-  [NOTIFICATION_TYPES.GAME_ENDED]: ({ isWinner } = {}) => ({
-    title: isWinner ? 'Victory' : 'Game ended',
-    body: isWinner ? 'Congratulations, you won the game.' : 'The game has finished. See results in the app.',
-  }),
+  [NOTIFICATION_TYPES.GAME_ENDED]: ({ isWinner } = {}) => {
+    const won = isWinner === true || isWinner === 'true';
+    return {
+      title: won ? 'Victory' : 'Game ended',
+      body: won ? 'Congratulations, you won the game.' : 'The game has finished. See results in the app.',
+    };
+  },
   [NOTIFICATION_TYPES.WALLET_UPDATE]: ({ direction, amount, reason } = {}) => {
     const r = reason ? ` (${reason})` : '';
     if (direction === 'credit') {

@@ -92,8 +92,8 @@ describe('NotificationService', () => {
   });
 
   describe('notifyGameEnded', () => {
-    it('should use game_ended type', async () => {
-      await notificationService.notifyGameEnded('507f1f77bcf86cd799439011', {
+    it('should use game_ended type and set title/body for winner when true', async () => {
+      const doc = await notificationService.notifyGameEnded('507f1f77bcf86cd799439011', {
         gameId: '507f1f77bcf86cd799439022',
         isWinner: true,
       });
@@ -104,6 +104,18 @@ describe('NotificationService', () => {
           userId: '507f1f77bcf86cd799439011',
         })
       );
+      expect(doc.title).toBe('Victory');
+      expect(doc.body).toBe('Congratulations, you won the game.');
+    });
+
+    it('should set title/body for loser when false', async () => {
+      const doc = await notificationService.notifyGameEnded('507f1f77bcf86cd799439011', {
+        gameId: '507f1f77bcf86cd799439022',
+        isWinner: false,
+      });
+
+      expect(doc.title).toBe('Game ended');
+      expect(doc.body).toBe('The game has finished. See results in the app.');
     });
   });
 
