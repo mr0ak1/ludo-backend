@@ -817,7 +817,22 @@ class GameService {
             logger.error(`Error processing reward/unlock for user ${player.userId}:`, error);
           }
         }
+      } else {
+        // For practice / other game types — always unlock wallets so stale locks never accumulate
+        const walletRepository = require('../repositories/walletRepository');
+        for (const player of game.players) {
+          try {
+            const uid = toUserIdString(player.userId);
+            const isBot = !!(isBotMap[uid] && isBotMap[uid].isBot);
+            if (isBot) continue;
+            await walletRepository.unlockWallet(uid, opts);
+            logger.info(`[completeGame] Player ${uid} wallet unlocked (non-cash) for game ${gameId}`);
+          } catch (error) {
+            logger.error(`Error unlocking wallet for user ${player.userId}:`, error);
+          }
+        }
       }
+
 
       for (const player of game.players) {
         try {

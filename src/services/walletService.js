@@ -385,7 +385,7 @@ class WalletService {
       if (wallet.isLocked) {
         // Extract the locked game's ID from the reason string, e.g. "Game in progress: abc123"
         const lockedGameIdMatch = wallet.lockedReason
-          ? wallet.lockedReason.match(/Game in progress[:\s]+([a-f0-9A-F]{24}|[a-f0-9]{16})/i)
+          ? wallet.lockedReason.match(/Game in progress[:\s]+(\S+)/i)
           : null;
         const lockedGameId = lockedGameIdMatch ? lockedGameIdMatch[1] : null;
 
@@ -417,6 +417,7 @@ class WalletService {
           throw new ApiError(HTTP_STATUS.CONFLICT, `Wallet is locked: ${wallet.lockedReason}`);
         }
       }
+
 
       // Check sufficient balance
       if (wallet.coins < entryFee) {
