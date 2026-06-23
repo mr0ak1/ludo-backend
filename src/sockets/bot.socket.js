@@ -105,8 +105,8 @@ const botSocket = (socket, io) => {
         delay: botService.getThinkingDelay(botPlayer.botDifficulty || 'medium'),
       });
 
-      // Occasionally send quick chat message (30% chance)
-      if (Math.random() < 0.3 && game.gameType !== 'practice') {
+      // Occasionally send quick chat message (2% chance per move - ensures it only happens in some random games)
+      if (Math.random() < 0.02 && game.gameType !== 'practice') {
         botChatService.sendBotQuickMessage(game, botPlayerIndex, io);
       }
 
@@ -131,8 +131,8 @@ const botSocket = (socket, io) => {
 
       const currentPlayer = game.players[playerIndex];
       if (currentPlayer && currentPlayer.isBot && game.gameType !== 'practice') {
-        // Trigger bot to send occasional chat messages
-        if (Math.random() < 0.25) {
+        // Trigger bot to send occasional chat messages (2% chance)
+        if (Math.random() < 0.02) {
           botChatService.sendBotQuickMessage(game, playerIndex, io);
         }
       }

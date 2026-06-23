@@ -20,6 +20,7 @@ const ProbabilityConfig = require('./probabilityConfig.model');
 const ChatMessage     = require('./chatMessage.model');
 const LobbyGame       = require('./lobbyGame.model');
 const ProbabilityAudit = require('./probabilityAudit.model');
+const Popup           = require('./popup.model');
 
 // ─── Associations ─────────────────────────────────────────────────────────────
 
@@ -69,4 +70,5 @@ module.exports = {
   ChatMessage,
   LobbyGame,
   ProbabilityAudit,
+  Popup,
 };

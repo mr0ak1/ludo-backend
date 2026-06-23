@@ -217,7 +217,7 @@ const initiateDeposit = async (req, res, next) => {
 
     const host = req.get('host');
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-    const backendUrl = `${protocol}://${host}`;
+    const backendUrl = process.env.BACKEND_URL || (host ? `${protocol}://${host}` : 'https://ludocash.co');
 
     const result = await walletService.initiateDeposit(userId, Number(amount), backendUrl);
 

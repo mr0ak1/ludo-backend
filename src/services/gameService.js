@@ -739,11 +739,11 @@ class GameService {
       await gameRepository.completeGame(gameId, results, opts);
 
       // REWARD FORMULA:
-      // Winner gets their own entry fee back + 90% of opponent's entry fee
+      // Winner gets their own entry fee back + 100% of opponent's entry fee
       const opponentCount = Math.max(0, numPlayers - 1);
       const rewardAmount =
         game.gameType === 'cash' && winnerStr && entryFee > 0
-          ? entryFee + Math.floor(entryFee * 0.9 * opponentCount)
+          ? entryFee + Math.floor(entryFee * 1.0 * opponentCount)
           : 0;
 
       const startedAt = game.startTime || game.createdAt || new Date();

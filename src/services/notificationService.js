@@ -24,20 +24,24 @@ class NotificationService {
 
   async _maybeSendPush(userId, notificationDoc, title, body) {
     const user = await userRepository.findById(userId);
+    const docId = notificationDoc?.id || notificationDoc?._id;
+
     if (!user || !user.deviceTokens?.length) {
-      await notificationRepository.updateDeliveryMeta(notificationDoc.id || notificationDoc._id, {
-        isSent: false,
-        sentAt: null,
-        sendError: null,
-      });
+      if (docId) {
+        await notificationRepository.updateDeliveryMeta(docId, {
+          isSent: false,
+          sentAt: null,
+          sendError: null,
+        });
+      }
       return;
     }
 
     try {
       const data = {
-        type: notificationDoc.type,
-        notificationId: String(notificationDoc.id || notificationDoc._id),
-        ...(notificationDoc.data && typeof notificationDoc.data === 'object' ? notificationDoc.data : {}),
+        type: notificationDoc?.type || '',
+        notificationId: docId ? String(docId) : '',
+        ...(notificationDoc?.data && typeof notificationDoc.data === 'object' ? notificationDoc.data : {}),
       };
       const { successCount, failureCount, invalidTokens } = await sendMulticastNotification(
         user.deviceTokens,
@@ -53,34 +57,42 @@ class NotificationService {
       }
 
       const ok = successCount > 0;
-      await notificationRepository.updateDeliveryMeta(notificationDoc.id || notificationDoc._id, {
-        isSent: ok,
-        sentAt: ok ? new Date() : null,
-        sendError: failureCount > 0 && successCount === 0 ? 'All FCM deliveries failed' : null,
-      });
+      if (docId) {
+        await notificationRepository.updateDeliveryMeta(docId, {
+          isSent: ok,
+          sentAt: ok ? new Date() : null,
+          sendError: failureCount > 0 && successCount === 0 ? 'All FCM deliveries failed' : null,
+        });
+      }
     } catch (err) {
       logger.error('FCM push failed:', err.message);
-      await notificationRepository.updateDeliveryMeta(notificationDoc.id || notificationDoc._id, {
-        isSent: false,
-        sentAt: null,
-        sendError: err.message || 'FCM error',
-      });
+      if (docId) {
+        await notificationRepository.updateDeliveryMeta(docId, {
+          isSent: false,
+          sentAt: null,
+          sendError: err.message || 'FCM error',
+        });
+      }
     }
   }
 
   /**
    * Persist in-app notification and optionally send FCM to registered devices.
    */
-  async createNotification(userId, type, { title, body, data = {}, sendPush = true } = {}) {
+  async createNotification(userId, type, { title, body, data = {}, sendPush = true, saveToDb = true } = {}) {
     const t = title && body ? { title, body } : this._template(type, data);
-    const doc = await notificationRepository.create({
-      userId,
-      type,
-      title: t.title,
-      body: t.body,
-      data,
-      expiresAt: msFromNow(TTL_DAYS),
-    });
+    
+    let doc = { type, data };
+    if (saveToDb) {
+      doc = await notificationRepository.create({
+        userId,
+        type,
+        title: t.title,
+        body: t.body,
+        data,
+        expiresAt: msFromNow(TTL_DAYS),
+      });
+    }
 
     if (sendPush) {
       setImmediate(() => {
@@ -134,25 +146,29 @@ class NotificationService {
       title,
       body,
       data: { gameId: String(gameId), opponentName: opponentName || '' },
+      saveToDb: false,
     });
   }
 
   async notifyGameStarted(userId, { gameId } = {}) {
     return this.createNotification(userId, NOTIFICATION_TYPES.GAME_STARTED, {
       data: { gameId: String(gameId) },
+      saveToDb: false,
     });
   }
 
   async notifyYourTurn(userId, { gameId } = {}) {
     return this.createNotification(userId, NOTIFICATION_TYPES.YOUR_TURN, {
       data: { gameId: String(gameId) },
-      sendPush: false
+      sendPush: false,
+      saveToDb: false,
     });
   }
 
   async notifyGameEnded(userId, { gameId, isWinner } = {}) {
     return this.createNotification(userId, NOTIFICATION_TYPES.GAME_ENDED, {
       data: { gameId: String(gameId), isWinner: String(!!isWinner) },
+      saveToDb: false,
     });
   }
 

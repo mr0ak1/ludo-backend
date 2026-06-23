@@ -75,8 +75,8 @@ class BotChatService {
       }
 
       const reactionMessages = {
-        win: ['I am winning 😎', 'Too easy!', 'Well Played!'],
-        lose: ['Oh no!', 'Play fast!', 'Next time!'],
+        win: ['I am winning 😎', 'Well Played!'],
+        lose: ['Oh no!', 'Play fast!', 'Too slow!', 'Loser!'],
       };
 
       const messages = reactionMessages[context] || ['Well Played!'];
