@@ -82,7 +82,7 @@ class NotificationService {
   async createNotification(userId, type, { title, body, data = {}, sendPush = true, saveToDb = true } = {}) {
     const t = title && body ? { title, body } : this._template(type, data);
     
-    let doc = { type, data };
+    let doc = { type, data, title: t.title, body: t.body };
     if (saveToDb) {
       doc = await notificationRepository.create({
         userId,

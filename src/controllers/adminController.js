@@ -1580,7 +1580,11 @@ const getLobbyGames = async (req, res, next) => {
       order: [['entryFee', 'ASC']],
     });
     res.status(HTTP_STATUS.OK).json(
-      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved', games.map(g => g.toJSON()))
+      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved', games.map(g => {
+        const data = g.toJSON();
+        data.prizeAmount = data.entryFee * (data.maxPlayers || 2);
+        return data;
+      }))
     );
   } catch (error) {
     next(error);
@@ -1589,12 +1593,13 @@ const getLobbyGames = async (req, res, next) => {
 
 const createLobbyGame = async (req, res, next) => {
   try {
-    const { entryFee, prizeAmount, maxPlayers, isActive } = req.body;
-    if (entryFee === undefined || prizeAmount === undefined) {
-      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'entryFee and prizeAmount are required');
+    const { entryFee, maxPlayers, isActive } = req.body;
+    if (entryFee === undefined) {
+      throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'entryFee is required');
     }
 
-    const game = await LobbyGame.create({ entryFee, prizeAmount, maxPlayers, isActive });
+    const calculatedPrizeAmount = entryFee * (maxPlayers || 2);
+    const game = await LobbyGame.create({ entryFee, prizeAmount: calculatedPrizeAmount, maxPlayers, isActive });
     
     if (game.isActive) {
       const notificationService = require('../services/notificationService');
@@ -1614,14 +1619,17 @@ const createLobbyGame = async (req, res, next) => {
 const updateLobbyGame = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { entryFee, prizeAmount, maxPlayers, isActive } = req.body;
+    const { entryFee, maxPlayers, isActive } = req.body;
     
     const game = await LobbyGame.findByPk(id);
     if (!game) {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, 'Lobby game not found');
     }
 
-    await game.update({ entryFee, prizeAmount, maxPlayers, isActive });
+    const finalEntryFee = entryFee !== undefined ? entryFee : game.entryFee;
+    const finalMaxPlayers = maxPlayers !== undefined ? maxPlayers : game.maxPlayers;
+    const calculatedPrizeAmount = finalEntryFee * (finalMaxPlayers || 2);
+    await game.update({ entryFee, prizeAmount: calculatedPrizeAmount, maxPlayers, isActive });
 
     if (game.isActive) {
       const notificationService = require('../services/notificationService');

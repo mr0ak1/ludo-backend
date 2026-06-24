@@ -2044,7 +2044,7 @@ class GameService {
       entryFee: game.betAmount || game.entryFee || 0,
       betAmount: game.betAmount || game.entryFee || 0,
       prizeAmount: game.gameType === 'cash' && (game.betAmount || game.entryFee) > 0
-        ? (game.betAmount || game.entryFee) + Math.floor((game.betAmount || game.entryFee) * 0.9 * ((game.maxPlayers || (game.players ? game.players.length : 2)) - 1))
+        ? (game.betAmount || game.entryFee) + Math.floor((game.betAmount || game.entryFee) * 1.0 * ((game.maxPlayers || (game.players ? game.players.length : 2)) - 1))
         : 0,
       createdAt: game.createdAt,
       updatedAt: game.updatedAt,

@@ -381,7 +381,11 @@ const getLobbyGames = async (req, res, next) => {
     });
     
     res.status(HTTP_STATUS.OK).json(
-      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved successfully', games.map(g => g.toJSON()))
+      new ApiResponse(HTTP_STATUS.OK, 'Lobby games retrieved successfully', games.map(g => {
+        const data = g.toJSON();
+        data.prizeAmount = data.entryFee * (data.maxPlayers || 2);
+        return data;
+      }))
     );
   } catch (error) {
     next(error);

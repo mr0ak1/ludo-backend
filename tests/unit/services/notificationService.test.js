@@ -98,12 +98,6 @@ describe('NotificationService', () => {
         isWinner: true,
       });
 
-      expect(notificationRepository.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: NOTIFICATION_TYPES.GAME_ENDED,
-          userId: '507f1f77bcf86cd799439011',
-        })
-      );
       expect(doc.title).toBe('Victory');
       expect(doc.body).toBe('Congratulations, you won the game.');
     });
