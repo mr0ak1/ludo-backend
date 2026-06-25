@@ -758,6 +758,57 @@ class WalletService {
 
     return { success: true, transactionId: txn.transactionId };
   }
+
+  /**
+   * Claim daily bonus
+   * @param {String} userId - User ID
+   * @returns {Promise<Object>} Result containing amount won and updated wallet
+   */
+  async claimDailyBonus(userId) {
+    try {
+      const user = await userRepository.findById(userId);
+      if (!user) {
+        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
+      }
+
+      // Check 24-hour limit
+      const now = new Date();
+      if (user.lastDailyBonusClaim) {
+        const lastClaimDate = new Date(user.lastDailyBonusClaim);
+        const timeDiffMs = now.getTime() - lastClaimDate.getTime();
+        const hoursPassed = timeDiffMs / (1000 * 60 * 60);
+        
+        if (hoursPassed < 24) {
+          throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'You can only claim once in 24 hours');
+        }
+      }
+
+      // Random bonus between 0 and 5 inclusive
+      const bonusAmount = Math.floor(Math.random() * 6);
+      
+      let wallet = await walletRepository.findByUserId(userId);
+      if (!wallet) {
+        wallet = await this.initializeWallet(userId);
+      }
+
+      // If bonus is 0, we still update the last claim time to enforce 24h lockout
+      if (bonusAmount > 0) {
+        wallet = await this.addCoins(userId, bonusAmount, 'daily_bonus', 'Daily Bonus Claim');
+      }
+
+      // Update user last claim time
+      await userRepository.update(userId, { lastDailyBonusClaim: now });
+
+      return {
+        amountWon: bonusAmount,
+        wallet
+      };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      logger.error('Error claiming daily bonus:', error);
+      throw error;
+    }
+  }
 }
 
 module.exports = new WalletService();

@@ -111,7 +111,10 @@ class GameService {
         for (let i = 0; i < 4; i++) {
           if (i === userPos) continue;
           if (botIndex < bots.length) {
-            players.push(createBotPlayerObject(bots[botIndex], i));
+            const botPlayer = createBotPlayerObject(bots[botIndex], i);
+            botPlayer.playerName = 'Computer';
+            botPlayer.name = 'Computer';
+            players.push(botPlayer);
             botIndex++;
           }
         }
