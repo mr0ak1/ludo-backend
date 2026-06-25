@@ -65,9 +65,9 @@ const connectDB = async () => {
     await sequelize.authenticate();
     console.log('MySQL connected successfully.');
 
-    // Sync all models (creates tables if they don't exist, alters if columns are added)
+    // Sync all models (creates tables if they don't exist)
     if (config.nodeEnv === 'production') {
-      await sequelize.sync({ alter: true });
+      await sequelize.sync();
     } else {
       await sequelize.sync({ alter: true });
     }
