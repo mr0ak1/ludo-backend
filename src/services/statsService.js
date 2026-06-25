@@ -242,10 +242,17 @@ class StatsService {
       };
       const mine = doc.participants.find((p) => getParticipantId(p) === userId);
       const opponents = doc.participants.filter((p) => getParticipantId(p) !== userId);
+      const hasBot = opponents.some(o => o.isBot);
+      const isFreeOrPractice = doc.gameType === 'practice' || (doc.betAmount || 0) === 0;
+      let gameType = doc.gameType;
+      if (hasBot && isFreeOrPractice && gameType === 'cash') {
+        gameType = 'bot';
+      }
+
       return {
         matchId: doc._id.toString(),
         gameId: doc.gameId.toString(),
-        gameType: doc.gameType,
+        gameType,
         endedAt: doc.endedAt,
         duration: doc.duration,
         totalMoves: doc.totalMoves,
@@ -259,6 +266,7 @@ class StatsService {
           isBot: o.isBot,
           placement: o.placement,
           playerColor: o.playerColor,
+          name: (o.isBot && isFreeOrPractice) ? 'Computer' : undefined,
         })),
       };
     });

@@ -268,7 +268,12 @@ class GameService {
       // Try to add 1 bot with specified difficulty
       const bots = await selectRandomBots(1, botDifficulty);
       if (bots && bots.length > 0) {
-        players.push(createBotPlayerObject(bots[0], botPos, botDifficulty));
+        const botPlayer = createBotPlayerObject(bots[0], botPos, botDifficulty);
+        if (entryFee === 0) {
+          botPlayer.playerName = 'Computer';
+          botPlayer.name = 'Computer';
+        }
+        players.push(botPlayer);
       }
 
       const gameData = {
@@ -2022,8 +2027,13 @@ class GameService {
       currentTurn: game.currentTurn,
       players: game.players.map((p, idx) => {
         const isPopulated = p.userId && typeof p.userId === 'object' && (p.userId.id || p.userId._id);
+        const isBot = !!(p.isBot || (isPopulated && p.userId.isBot));
+        const isFreeOrPractice = game.gameType === 'practice' || (game.betAmount || game.entryFee || 0) === 0;
         // Use playerName if set (for bots), otherwise use populated User name
-        const playerName = p.playerName || (isPopulated ? p.userId.name : 'Player');
+        let playerName = p.playerName || (isPopulated ? p.userId.name : 'Player');
+        if (isBot && isFreeOrPractice) {
+          playerName = 'Computer';
+        }
         return {
           position: p.position ?? idx,
           userId: toUserIdString(p.userId),
