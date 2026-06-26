@@ -36,8 +36,11 @@ Transaction.init(
         'admin_deduct',
         'game_entry',
         'game_reward',
+        'game_refund',
         'deposit',
-        'withdrawal'
+        'withdrawal',
+        'daily_bonus',
+        'referral_bonus'
       ),
       allowNull: false,
     },
