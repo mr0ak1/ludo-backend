@@ -682,21 +682,27 @@ class WalletService {
 
         return { success: true, amount: totalCredit };
       } else {
-        // Only mark as failed if status is explicitly Failure/Expired, or if resultData status is false (invalid order/expired)
+        // Only mark as failed if status is explicitly Failure/Expired, 
+        // OR if the transaction has been pending for more than 5 minutes (to avoid premature failure).
         const gatewayStatus = resultData.data?.status?.toLowerCase();
+        
+        const createdAt = new Date(txn.createdAt).getTime();
+        const now = Date.now();
+        const ageInMinutes = (now - createdAt) / (1000 * 60);
+
         if (
-          resultData.status === false || 
           gatewayStatus === 'failure' || 
-          gatewayStatus === 'expired'
+          gatewayStatus === 'expired' ||
+          (resultData.status === false && ageInMinutes > 5)
         ) {
           txn.status = 'failed';
           await txn.save();
-          logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} marked as failed. Gateway status: ${gatewayStatus}`);
+          logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} marked as failed. Gateway status: ${gatewayStatus}, Age: ${ageInMinutes.toFixed(1)}m`);
           return { success: false, message: "Payment failed or expired" };
         }
         
         // Otherwise, keep it as 'pending'
-        logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} remains pending. Gateway status: ${gatewayStatus || 'unknown'}`);
+        logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} remains pending. Gateway status: ${gatewayStatus || 'unknown'}, Age: ${ageInMinutes.toFixed(1)}m`);
         return { success: false, message: "Payment is pending completion" };
       }
     } catch (err) {
