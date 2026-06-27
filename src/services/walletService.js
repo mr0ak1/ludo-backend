@@ -573,8 +573,18 @@ class WalletService {
     const User = require('../models/user.model');
     const user = await User.findByPk(userId);
 
+    const getISTDateString = () => {
+      const utcDate = new Date();
+      const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC + 5:30
+      const istDate = new Date(utcDate.getTime() + istOffset);
+      const day = String(istDate.getUTCDate()).padStart(2, '0');
+      const month = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+      const year = istDate.getUTCFullYear();
+      return `${day}-${month}-${year}`;
+    };
+
     const client_txn_id = String(Math.floor(Math.random() * 900000) + 100000);
-    const txn_date = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+    const txn_date = getISTDateString();
     
     // Create pending transaction
     const Transaction = require('../models/transaction.model');
