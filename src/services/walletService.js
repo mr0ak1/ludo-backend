@@ -652,19 +652,16 @@ class WalletService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, "Transaction not found");
     }
 
-    if (txn.status === 'completed' || txn.status === 'processing') {
+    if (txn.status === 'completed') {
       return { success: true, message: "Transaction already processed", amount: txn.amount };
     }
 
-    // Atomically mark as processing to prevent concurrent requests from double-crediting
-    const [updatedCount] = await Transaction.update(
+    // Mark as processing to indicate we are checking it, but don't block if already processing
+    // in case a previous attempt crashed.
+    await Transaction.update(
       { status: 'processing' },
       { where: { transactionId: client_txn_id, status: 'pending' } }
     );
-
-    if (updatedCount === 0) {
-      return { success: true, message: "Transaction is already being processed", amount: txn.amount };
-    }
 
     const BotConfig = require('../models/botConfig.model');
     const config = await BotConfig.findOne();
@@ -695,6 +692,17 @@ class WalletService {
         resultData.data?.status?.toLowerCase() === 'success'
       ) {
         // Payment success, add funds
+        // ATOMIC CHECK: ensure we are the only thread to complete this transaction
+        const [completedCount] = await Transaction.update(
+          { status: 'completed' },
+          { where: { transactionId: client_txn_id, status: 'processing' } }
+        );
+
+        if (completedCount === 0) {
+          // Transaction was already completed by another thread or is not in processing state
+          return { success: true, amount: txn.amount };
+        }
+
         const amount = txn.amount;
         const bonus = (amount >= 100) ? Number((amount * 0.05).toFixed(2)) : 0;
         const totalCredit = amount + bonus;
@@ -765,7 +773,7 @@ class WalletService {
   async verifyPendingDeposits(userId) {
     const Transaction = require('../models/transaction.model');
     const pendingTxns = await Transaction.findAll({
-      where: { userId, type: 'deposit', status: 'pending' }
+      where: { userId, type: 'deposit', status: ['pending', 'processing'] }
     });
 
     if (!pendingTxns.length) {

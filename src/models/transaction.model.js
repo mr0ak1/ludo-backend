@@ -86,7 +86,7 @@ Transaction.init(
       }
     },
     status: {
-      type: DataTypes.ENUM('pending', 'completed', 'failed', 'reversed'),
+      type: DataTypes.ENUM('pending', 'processing', 'completed', 'failed', 'reversed'),
       defaultValue: 'completed',
     },
   },
