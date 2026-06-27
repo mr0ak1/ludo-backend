@@ -335,7 +335,8 @@ const rejectWithdrawal = async (req, res, next) => {
     if (transaction.status !== 'pending') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Withdrawal is already ' + transaction.status);
 
     const walletService = require('../services/walletService');
-    await walletService.addCoins(transaction.userId, Math.abs(transaction.amount), 'refund', 'Withdrawal Rejected Refund');
+    const originalAmount = transaction.metadata?.originalAmount || Math.abs(transaction.amount);
+    await walletService.addCoins(transaction.userId, originalAmount, 'refund', 'Withdrawal Rejected Refund');
 
     transaction.status = 'failed';
     transaction.reason = transaction.reason + ' (Rejected by Admin)';
@@ -441,10 +442,17 @@ const approveDeposit = async (req, res, next) => {
     if (transaction.type !== 'deposit') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Not a deposit transaction');
     if (transaction.status !== 'pending') throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'Deposit is already ' + transaction.status);
 
-    const walletService = require('../services/walletService');
-    await walletService.addCoins(transaction.userId, transaction.amount, 'deposit', 'Deposit Approved by Admin');
+    const walletRepository = require('../repositories/walletRepository');
+    
+    const wallet = await walletRepository.findByUserId(transaction.userId);
+    const previousBalance = wallet ? wallet.coins : 0;
+    
+    const updatedWallet = await walletRepository.addCoins(transaction.userId, transaction.amount, 'Deposit Approved by Admin');
 
+    transaction.beforeBalance = previousBalance;
+    transaction.afterBalance = updatedWallet.coins;
     transaction.status = 'completed';
+    transaction.reason = 'Deposit Approved by Admin';
     await transaction.save();
 
     res.status(HTTP_STATUS.OK).json(new ApiResponse(HTTP_STATUS.OK, 'Deposit approved successfully', transaction));

@@ -292,16 +292,18 @@ class WalletService {
       // Deduct coins pending approval
       const updatedWallet = await walletRepository.deductCoins(userId, amount, 'Withdrawal request');
 
+      const cutAmount = Number((amount * 0.82).toFixed(2));
+
       // Log transaction as pending withdrawal
       const tx = await transactionRepository.create({
         userId,
         type: 'withdrawal',
-        amount: -amount,
+        amount: -cutAmount,
         reason: 'Withdrawal to ' + paymentMethod,
         beforeBalance: previousBalance,
         afterBalance: updatedWallet.coins,
         status: 'pending',
-        metadata: { paymentMethod }
+        metadata: { paymentMethod, originalAmount: amount, fee: amount - cutAmount }
       });
 
       logger.info(`User ${userId} requested withdrawal of ${amount}`);
@@ -640,8 +642,18 @@ class WalletService {
       throw new ApiError(HTTP_STATUS.NOT_FOUND, "Transaction not found");
     }
 
-    if (txn.status === 'completed') {
-      return { success: true, message: "Transaction already completed", amount: txn.amount };
+    if (txn.status === 'completed' || txn.status === 'processing') {
+      return { success: true, message: "Transaction already processed", amount: txn.amount };
+    }
+
+    // Atomically mark as processing to prevent concurrent requests from double-crediting
+    const [updatedCount] = await Transaction.update(
+      { status: 'processing' },
+      { where: { transactionId: client_txn_id, status: 'pending' } }
+    );
+
+    if (updatedCount === 0) {
+      return { success: true, message: "Transaction is already being processed", amount: txn.amount };
     }
 
     const BotConfig = require('../models/botConfig.model');
@@ -672,13 +684,32 @@ class WalletService {
       ) {
         // Payment success, add funds
         const amount = txn.amount;
-        const bonus = (amount >= 100) ? Math.round(amount * 0.05) : 0;
+        const bonus = (amount >= 100) ? Number((amount * 0.05).toFixed(2)) : 0;
         const totalCredit = amount + bonus;
 
-        await this.addCoins(txn.userId, totalCredit, 'deposit', `UPI Deposit (Bonus: ${bonus})`);
+        const wallet = await walletRepository.findByUserId(txn.userId);
+        const previousBalance = wallet ? wallet.coins : 0;
         
+        const updatedWallet = await walletRepository.addCoins(txn.userId, totalCredit, `UPI Deposit (Bonus: ${bonus})`);
+        
+        txn.amount = totalCredit; // Update amount if bonus was added
+        txn.beforeBalance = previousBalance;
+        txn.afterBalance = updatedWallet.coins;
         txn.status = 'completed';
+        txn.reason = `UPI Deposit (Bonus: ${bonus})`;
         await txn.save();
+
+        setImmediate(() => {
+          notificationService
+            .notifyWalletUpdate(txn.userId, {
+              amount: totalCredit,
+              direction: 'credit',
+              balanceAfter: updatedWallet.coins,
+              reason: `UPI Deposit (Bonus: ${bonus})`,
+              refId: txn.transactionId,
+            })
+            .catch((e) => logger.error('notifyWalletUpdate failed:', e.message));
+        });
 
         return { success: true, amount: totalCredit };
       } else {
@@ -689,6 +720,11 @@ class WalletService {
       }
     } catch (err) {
       logger.error('EKQR Verification Error: ' + err.message);
+      // Reset status back to pending so it can be retried
+      if (txn) {
+        txn.status = 'pending';
+        await txn.save().catch(e => logger.error('Failed to reset txn status', e));
+      }
       throw new ApiError(HTTP_STATUS.INTERNAL_SERVER_ERROR, "Verification failed");
     }
   }
