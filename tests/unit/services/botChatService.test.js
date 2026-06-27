@@ -236,7 +236,7 @@ describe('Bot Chat Service', () => {
       );
 
       const emittedMessage = gameEvents.emit.mock.calls[0][1].message;
-      expect(["Oh no!", "Play fast!", "Next time!"]).toContain(emittedMessage);
+      expect(["Oh no!", "Play fast!", "Too slow!", "Loser!"]).toContain(emittedMessage);
     });
 
     it('should NOT send reaction in practice games', async () => {

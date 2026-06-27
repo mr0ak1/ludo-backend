@@ -103,4 +103,11 @@ router.post('/freeze', authMiddleware, adminMiddleware, walletController.freezeW
  */
 router.post('/unfreeze', authMiddleware, adminMiddleware, walletController.unfreezeWallet);
 
+/**
+ * @route POST /api/v1/wallet/daily-bonus
+ * @desc Claim daily bonus
+ * @access Private
+ */
+router.post('/daily-bonus', authMiddleware, walletController.claimDailyBonus);
+
 module.exports = router;

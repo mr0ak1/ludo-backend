@@ -134,6 +134,11 @@ User.init(
       type: DataTypes.DATE,
       defaultValue: DataTypes.NOW,
     },
+    lastDailyBonusClaim: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: null,
+    },
     // Array of FCM device tokens stored as JSON
     deviceTokens: {
       type: DataTypes.JSON,

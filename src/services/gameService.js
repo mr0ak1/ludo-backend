@@ -111,7 +111,10 @@ class GameService {
         for (let i = 0; i < 4; i++) {
           if (i === userPos) continue;
           if (botIndex < bots.length) {
-            players.push(createBotPlayerObject(bots[botIndex], i));
+            const botPlayer = createBotPlayerObject(bots[botIndex], i);
+            botPlayer.playerName = 'Computer';
+            botPlayer.name = 'Computer';
+            players.push(botPlayer);
             botIndex++;
           }
         }
@@ -265,7 +268,12 @@ class GameService {
       // Try to add 1 bot with specified difficulty
       const bots = await selectRandomBots(1, botDifficulty);
       if (bots && bots.length > 0) {
-        players.push(createBotPlayerObject(bots[0], botPos, botDifficulty));
+        const botPlayer = createBotPlayerObject(bots[0], botPos, botDifficulty);
+        if (entryFee === 0) {
+          botPlayer.playerName = 'Computer';
+          botPlayer.name = 'Computer';
+        }
+        players.push(botPlayer);
       }
 
       const gameData = {
@@ -2019,8 +2027,13 @@ class GameService {
       currentTurn: game.currentTurn,
       players: game.players.map((p, idx) => {
         const isPopulated = p.userId && typeof p.userId === 'object' && (p.userId.id || p.userId._id);
+        const isBot = !!(p.isBot || (isPopulated && p.userId.isBot));
+        const isFreeOrPractice = game.gameType === 'practice' || (game.betAmount || game.entryFee || 0) === 0;
         // Use playerName if set (for bots), otherwise use populated User name
-        const playerName = p.playerName || (isPopulated ? p.userId.name : 'Player');
+        let playerName = p.playerName || (isPopulated ? p.userId.name : 'Player');
+        if (isBot && isFreeOrPractice) {
+          playerName = 'Computer';
+        }
         return {
           position: p.position ?? idx,
           userId: toUserIdString(p.userId),
@@ -2044,7 +2057,7 @@ class GameService {
       entryFee: game.betAmount || game.entryFee || 0,
       betAmount: game.betAmount || game.entryFee || 0,
       prizeAmount: game.gameType === 'cash' && (game.betAmount || game.entryFee) > 0
-        ? (game.betAmount || game.entryFee) + Math.floor((game.betAmount || game.entryFee) * 0.9 * ((game.maxPlayers || (game.players ? game.players.length : 2)) - 1))
+        ? (game.betAmount || game.entryFee) + Math.floor((game.betAmount || game.entryFee) * 1.0 * ((game.maxPlayers || (game.players ? game.players.length : 2)) - 1))
         : 0,
       createdAt: game.createdAt,
       updatedAt: game.updatedAt,

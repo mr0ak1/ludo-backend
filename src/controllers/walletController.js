@@ -393,6 +393,23 @@ const handlePaymentRedirect = async (req, res, next) => {
   }
 };
 
+/**
+ * Claim Daily Bonus
+ * POST /api/v1/wallet/daily-bonus
+ */
+const claimDailyBonus = async (req, res, next) => {
+  try {
+    const userId = req.user.userId;
+    const result = await walletService.claimDailyBonus(userId);
+
+    res.status(HTTP_STATUS.OK).json(
+      new ApiResponse(HTTP_STATUS.OK, 'Daily bonus claimed successfully', result)
+    );
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getWallet,
   getTransactionHistory,
@@ -408,4 +425,5 @@ module.exports = {
   getDepositConfig,
   submitManualDeposit,
   handlePaymentRedirect,
+  claimDailyBonus,
 };

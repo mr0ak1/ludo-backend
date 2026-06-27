@@ -575,8 +575,18 @@ class WalletService {
     const User = require('../models/user.model');
     const user = await User.findByPk(userId);
 
+    const getISTDateString = () => {
+      const utcDate = new Date();
+      const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC + 5:30
+      const istDate = new Date(utcDate.getTime() + istOffset);
+      const day = String(istDate.getUTCDate()).padStart(2, '0');
+      const month = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+      const year = istDate.getUTCFullYear();
+      return `${day}-${month}-${year}`;
+    };
+
     const client_txn_id = String(Math.floor(Math.random() * 900000) + 100000);
-    const txn_date = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+    const txn_date = getISTDateString();
     
     // Create pending transaction
     const Transaction = require('../models/transaction.model');
@@ -676,6 +686,8 @@ class WalletService {
         body: payload.toString()
       });
       const resultData = await response.json();
+      
+      logger.info(`[verifyDepositCallback] EKQR response for txn ${client_txn_id}: ${JSON.stringify(resultData)}`);
 
       if (
         response.status === 200 &&
@@ -713,10 +725,28 @@ class WalletService {
 
         return { success: true, amount: totalCredit };
       } else {
-        // Payment failed or not success
-        txn.status = 'failed';
-        await txn.save();
-        return { success: false, message: "Payment was not successful" };
+        // Only mark as failed if status is explicitly Failure/Expired, 
+        // OR if the transaction has been pending for more than 5 minutes (to avoid premature failure).
+        const gatewayStatus = resultData.data?.status?.toLowerCase();
+        
+        const createdAt = new Date(txn.createdAt).getTime();
+        const now = Date.now();
+        const ageInMinutes = (now - createdAt) / (1000 * 60);
+
+        if (
+          gatewayStatus === 'failure' || 
+          gatewayStatus === 'expired' ||
+          (resultData.status === false && ageInMinutes > 5)
+        ) {
+          txn.status = 'failed';
+          await txn.save();
+          logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} marked as failed. Gateway status: ${gatewayStatus}, Age: ${ageInMinutes.toFixed(1)}m`);
+          return { success: false, message: "Payment failed or expired" };
+        }
+        
+        // Otherwise, keep it as 'pending'
+        logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} remains pending. Gateway status: ${gatewayStatus || 'unknown'}, Age: ${ageInMinutes.toFixed(1)}m`);
+        return { success: false, message: "Payment is pending completion" };
       }
     } catch (err) {
       logger.error('EKQR Verification Error: ' + err.message);
@@ -793,6 +823,57 @@ class WalletService {
     });
 
     return { success: true, transactionId: txn.transactionId };
+  }
+
+  /**
+   * Claim daily bonus
+   * @param {String} userId - User ID
+   * @returns {Promise<Object>} Result containing amount won and updated wallet
+   */
+  async claimDailyBonus(userId) {
+    try {
+      const user = await userRepository.findById(userId);
+      if (!user) {
+        throw new ApiError(HTTP_STATUS.NOT_FOUND, 'User not found');
+      }
+
+      // Check 24-hour limit
+      const now = new Date();
+      if (user.lastDailyBonusClaim) {
+        const lastClaimDate = new Date(user.lastDailyBonusClaim);
+        const timeDiffMs = now.getTime() - lastClaimDate.getTime();
+        const hoursPassed = timeDiffMs / (1000 * 60 * 60);
+        
+        if (hoursPassed < 24) {
+          throw new ApiError(HTTP_STATUS.BAD_REQUEST, 'You can only claim once in 24 hours');
+        }
+      }
+
+      // Random bonus between 0 and 5 inclusive
+      const bonusAmount = Math.floor(Math.random() * 6);
+      
+      let wallet = await walletRepository.findByUserId(userId);
+      if (!wallet) {
+        wallet = await this.initializeWallet(userId);
+      }
+
+      // If bonus is 0, we still update the last claim time to enforce 24h lockout
+      if (bonusAmount > 0) {
+        wallet = await this.addCoins(userId, bonusAmount, 'daily_bonus', 'Daily Bonus Claim');
+      }
+
+      // Update user last claim time
+      await userRepository.update(userId, { lastDailyBonusClaim: now });
+
+      return {
+        amountWon: bonusAmount,
+        wallet
+      };
+    } catch (error) {
+      if (error instanceof ApiError) throw error;
+      logger.error('Error claiming daily bonus:', error);
+      throw error;
+    }
   }
 }
 
