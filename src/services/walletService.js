@@ -682,10 +682,22 @@ class WalletService {
 
         return { success: true, amount: totalCredit };
       } else {
-        // Payment failed or not success
-        txn.status = 'failed';
-        await txn.save();
-        return { success: false, message: "Payment was not successful" };
+        // Only mark as failed if status is explicitly Failure/Expired, or if resultData status is false (invalid order/expired)
+        const gatewayStatus = resultData.data?.status?.toLowerCase();
+        if (
+          resultData.status === false || 
+          gatewayStatus === 'failure' || 
+          gatewayStatus === 'expired'
+        ) {
+          txn.status = 'failed';
+          await txn.save();
+          logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} marked as failed. Gateway status: ${gatewayStatus}`);
+          return { success: false, message: "Payment failed or expired" };
+        }
+        
+        // Otherwise, keep it as 'pending'
+        logger.info(`[verifyDepositCallback] Transaction ${client_txn_id} remains pending. Gateway status: ${gatewayStatus || 'unknown'}`);
+        return { success: false, message: "Payment is pending completion" };
       }
     } catch (err) {
       logger.error('EKQR Verification Error: ' + err.message);
