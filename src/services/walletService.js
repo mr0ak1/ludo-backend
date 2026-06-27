@@ -664,6 +664,8 @@ class WalletService {
         body: payload.toString()
       });
       const resultData = await response.json();
+      
+      logger.info(`[verifyDepositCallback] EKQR response for txn ${client_txn_id}: ${JSON.stringify(resultData)}`);
 
       if (
         response.status === 200 &&
