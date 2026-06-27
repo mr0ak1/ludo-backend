@@ -838,9 +838,16 @@ const getLiveGames = async (req, res, next) => {
   try {
     const { limit = 50 } = req.query;
 
-    const liveGames = await gameRepository.findByStatus('active', { limit: parseInt(limit) });
+    const liveGames = await gameRepository.findByStatus('active', { limit: 100 }); // Fetch more since we're filtering
 
-    const formattedGames = liveGames.games?.map(g => ({
+    // Filter out games that are older than 30 minutes (likely stuck/orphaned)
+    const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+    const validLiveGames = (liveGames.games || []).filter(g => {
+      const lastActive = g.updatedAt ? new Date(g.updatedAt) : new Date(g.createdAt);
+      return lastActive > thirtyMinutesAgo;
+    }).slice(0, parseInt(limit));
+
+    const formattedGames = validLiveGames.map(g => ({
       _id: g._id,
       gameId: g.gameId,
       status: g.status,
@@ -857,7 +864,7 @@ const getLiveGames = async (req, res, next) => {
       currentTurn: g.currentTurn,
       turnStartedAt: g.turnStartedAt,
       createdAt: g.createdAt,
-    })) || [];
+    }));
 
     res.status(HTTP_STATUS.OK).json(
       new ApiResponse(HTTP_STATUS.OK, 'Live games retrieved', {
