@@ -31,6 +31,7 @@ const HOME_ENTRY_END = 56; // 50-56 for final home run
 const MAX_DICE_VALUE = 6;
 const TURN_TIMEOUT = 20000; // 20 seconds
 const DISCONNECT_TIMEOUT = 30000; // 30 seconds
+const MAX_MISSED_TURNS = 3;
 
 function toUserIdString(ref) {
   if (ref == null) return null;
@@ -576,7 +577,7 @@ class GameService {
         }
 
         const token = currentPlayer.tokens[tokenIndex];
-        const formattedGame = await this._applyMove(gameId, game, playerIndex, tokenIndex, diceValue, userId, false);
+        const formattedGame = await this._applyMove(gameId, game, playerIndex, tokenIndex, diceValue, userId, false, false);
 
         return formattedGame;
       } catch (error) {
@@ -619,10 +620,12 @@ class GameService {
 
         // Move to next player
         currentPlayer.consecutiveSixes = 0;
+        currentPlayer.missedTurns = 0;
         await gameRepository.updatePlayerBoard(gameId, playerIndex, {
           tokens: currentPlayer.tokens,
           isHome: currentPlayer.isHome,
           consecutiveSixes: currentPlayer.consecutiveSixes,
+          missedTurns: 0,
         });
         const nextTurn = (playerIndex + 1) % game.players.length;
         await gameRepository.update(gameId, { diceValue: 0 });
@@ -1145,9 +1148,9 @@ class GameService {
     // Increment missed turns
     const missedTurns = (currentPlayer.missedTurns || 0) + 1;
     
-    if (missedTurns >= 5 && currentPlayer.userId) {
+    if (missedTurns >= MAX_MISSED_TURNS && currentPlayer.userId) {
       const userIdStr = toUserIdString(currentPlayer.userId);
-      logger.info(`Player ${userIdStr} missed 5 turns in game ${gameId}. Auto-surrendering.`);
+      logger.info(`Player ${userIdStr} missed ${MAX_MISSED_TURNS} turns in game ${gameId}. Auto-surrendering.`);
       
       const otherPlayer = game.players.find((p, idx) => idx !== playerIndex);
       const winnerId = otherPlayer ? toUserIdString(otherPlayer.userId) : null;
@@ -1155,7 +1158,7 @@ class GameService {
       const results = {
         surrenderedBy: userIdStr,
         status: 'surrendered',
-        reason: 'missed_5_turns',
+        reason: `missed_${MAX_MISSED_TURNS}_turns`,
         winner: winnerId
       };
       
@@ -1212,7 +1215,7 @@ class GameService {
     
     if (validMoves.length > 0) {
       const tokenIndex = validMoves[crypto.randomInt(0, validMoves.length)];
-      await this._applyMove(gameId, game, playerIndex, tokenIndex, diceValue, actionUserId, false);
+      await this._applyMove(gameId, game, playerIndex, tokenIndex, diceValue, actionUserId, false, true);
     } else {
       if (currentPlayer) {
         await gameRepository.updatePlayerBoard(gameId, playerIndex, {
@@ -1826,11 +1829,17 @@ class GameService {
    * Unified move execution engine for both Human and Bot
    * @private
    */
-  async _applyMove(gameId, game, playerIndex, tokenIndex, diceValue, actionUserId, isBot) {
+  async _applyMove(gameId, game, playerIndex, tokenIndex, diceValue, actionUserId, isBot, isTimeoutMove = false) {
     // Create a deep clone to avoid mutating the source object before transaction success
     // This prevents race conditions and state corruption if the transaction fails
     const gameClone = JSON.parse(JSON.stringify(game));
     const currentPlayer = gameClone.players[playerIndex];
+
+    // Reset missed turns if this is a manual move by a human player (not timeout, not bot)
+    if (!isBot && !isTimeoutMove) {
+      currentPlayer.missedTurns = 0;
+    }
+
     const token = currentPlayer.tokens[tokenIndex];
     const oldPosition = token.position;
 
@@ -1933,6 +1942,7 @@ class GameService {
         tokens: currentPlayer.tokens,
         isHome: currentPlayer.isHome,
         consecutiveSixes: currentPlayer.consecutiveSixes,
+        missedTurns: currentPlayer.missedTurns || 0,
       }, opts);
 
       await gameRepository.addMove(gameId, moveData, opts);
@@ -2179,10 +2189,12 @@ class GameService {
 
           // Reset consecutive sixes and move to next player
           currentPlayer.consecutiveSixes = 0;
+          currentPlayer.missedTurns = 0;
           await gameRepository.updatePlayerBoard(gameId, playerIndex, {
             tokens: currentPlayer.tokens,
             isHome: currentPlayer.isHome,
             consecutiveSixes: currentPlayer.consecutiveSixes,
+            missedTurns: 0,
           });
 
           const nextTurn = (playerIndex + 1) % game.players.length;
