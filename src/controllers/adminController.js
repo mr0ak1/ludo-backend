@@ -198,7 +198,7 @@ const getUser = async (req, res, next) => {
     const transactionRepository = require('../repositories/transactionRepository');
     const walletService = require('../services/walletService');
     const walletStats = await walletService.getWalletStats(id).catch(() => ({}));
-    const transactions = await transactionRepository.findByUserId(id, { limit: 10 }).catch(() => ({ transactions: [] }));
+    const transactions = await transactionRepository.findByUserId(id, { limit: 10 }, { excludeStatus: 'processing' }).catch(() => ({ transactions: [] }));
 
     const userData = {
       ...user,

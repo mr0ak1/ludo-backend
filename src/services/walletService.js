@@ -546,7 +546,7 @@ class WalletService {
         currentBalance: wallet?.coins || 0,
         totalEarned: coinStats.totalEarned || 0,
         totalSpent: coinStats.totalSpent || 0,
-        netCoins: (coinStats.totalEarned || 0) - (coinStats.totalSpent || 0),
+        netCoins: (coinStats.pnlEarned || 0) - (coinStats.pnlSpent || 0),
         transactionCount: coinStats.transactionCount || 0,
         transactionSummary: summary,
       };

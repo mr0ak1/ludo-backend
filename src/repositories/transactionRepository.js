@@ -60,6 +60,10 @@ class TransactionRepository {
 
       const where = { userId: numericUserId };
 
+      if (filters.excludeStatus) {
+        where.status = { [Op.ne]: filters.excludeStatus };
+      }
+
       // Filter by transaction type
       if (filters.type) {
         where.type = filters.type;
@@ -137,7 +141,7 @@ class TransactionRepository {
     try {
       const numericUserId = parseInt(userId, 10);
       const summary = await Transaction.findAll({
-        where: { userId: numericUserId },
+        where: { userId: numericUserId, status: 'completed' },
         attributes: [
           'type',
           [sequelize.fn('COUNT', sequelize.col('id')), 'count'],
@@ -171,10 +175,12 @@ class TransactionRepository {
     try {
       const numericUserId = parseInt(userId, 10);
       const stats = await Transaction.findOne({
-        where: { userId: numericUserId },
+        where: { userId: numericUserId, status: 'completed' },
         attributes: [
           [sequelize.literal("COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)"), 'totalEarned'],
           [sequelize.literal("COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0)"), 'totalSpent'],
+          [sequelize.literal("COALESCE(SUM(CASE WHEN type IN ('game_reward', 'game_refund') AND amount > 0 THEN amount ELSE 0 END), 0)"), 'pnlEarned'],
+          [sequelize.literal("COALESCE(SUM(CASE WHEN type = 'game_entry' AND amount < 0 THEN ABS(amount) ELSE 0 END), 0)"), 'pnlSpent'],
           [sequelize.fn('COUNT', sequelize.col('id')), 'transactionCount'],
         ],
         raw: true,
@@ -183,6 +189,8 @@ class TransactionRepository {
       return {
         totalEarned: parseInt(stats.totalEarned, 10) || 0,
         totalSpent: parseInt(stats.totalSpent, 10) || 0,
+        pnlEarned: parseInt(stats.pnlEarned, 10) || 0,
+        pnlSpent: parseInt(stats.pnlSpent, 10) || 0,
         transactionCount: parseInt(stats.transactionCount, 10) || 0,
       };
     } catch (error) {

@@ -65,6 +65,14 @@ const connectDB = async () => {
     await sequelize.authenticate();
     console.log('MySQL connected successfully.');
 
+    try {
+      console.log('Altering transactions status ENUM...');
+      await sequelize.query("ALTER TABLE transactions MODIFY COLUMN status ENUM('pending', 'processing', 'completed', 'failed', 'reversed') DEFAULT 'completed'");
+      console.log('ENUM altered successfully.');
+    } catch (err) {
+      console.log('Error altering ENUM:', err.message);
+    }
+
     // Sync all models (creates tables if they don't exist)
     if (config.nodeEnv === 'production') {
       await sequelize.sync();
